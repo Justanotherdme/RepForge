@@ -2788,33 +2788,53 @@ struct ProgramDayCard: View {
     let onReset: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(spacing: 2) {
+                    Text(day.day.prefix(3).uppercased())
+                        .font(.caption2.bold())
+                        .foregroundStyle(RFTheme.accent)
+                    Text("\(day.exercises.count)")
+                        .font(.title3.bold())
+                }
+                .frame(width: 46, height: 48)
+                .background(RFTheme.accent.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 13))
+
+                VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 7) {
-                        Text(day.day).font(.headline)
+                        Text(day.title)
+                            .font(.headline)
+                            .lineLimit(1)
+
                         if isCustomized {
-                            Text("Edited")
-                                .font(.caption2.bold())
+                            Text(L10n.text("Edited", "Bewerkt"))
+                                .font(.system(size: 9, weight: .bold))
                                 .foregroundStyle(RFTheme.accent)
-                                .padding(.horizontal, 7)
+                                .padding(.horizontal, 6)
                                 .padding(.vertical, 3)
                                 .background(RFTheme.accent.opacity(0.12))
                                 .clipShape(Capsule())
                         }
                     }
-                    Text(day.focus).font(.subheadline).foregroundStyle(RFTheme.accent)
-                    Text(day.partner.capitalized).font(.caption).foregroundStyle(RFTheme.muted)
+
+                    Text(day.focus)
+                        .font(.caption.bold())
+                        .foregroundStyle(RFTheme.accent)
+
+                    Text(day.partner.capitalized)
+                        .font(.caption2)
+                        .foregroundStyle(RFTheme.muted)
                 }
 
                 Spacer()
 
                 Menu {
                     Button(action: onEdit) {
-                        Label("Edit Workout", systemImage: "pencil")
+                        Label(L10n.text("Edit Workout", "Training bewerken"), systemImage: "pencil")
                     }
                     Button(action: onSaveAsTemplate) {
-                        Label("Add to New Template", systemImage: "rectangle.stack.badge.plus")
+                        Label(L10n.text("Add to New Template", "Aan nieuwe template toevoegen"), systemImage: "rectangle.stack.badge.plus")
                     }
                     Button(action: onSchedule) {
                         Label(L10n.text("Schedule", "Inplannen"), systemImage: "calendar.badge.plus")
@@ -2829,51 +2849,58 @@ struct ProgramDayCard: View {
                     }
                     if isCustomized {
                         Button(role: .destructive, action: onReset) {
-                            Label("Reset to Original", systemImage: "arrow.counterclockwise")
+                            Label(L10n.text("Reset to Original", "Herstel origineel"), systemImage: "arrow.counterclockwise")
                         }
                     }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.headline)
-                        .frame(width: 38, height: 38)
-                        .background(RFTheme.raised)
-                        .clipShape(RoundedRectangle(cornerRadius: 11))
+                        .foregroundStyle(RFTheme.muted)
+                        .frame(width: 34, height: 34)
+                        .background(RFTheme.field)
+                        .clipShape(Circle())
                 }
             }
 
-            ForEach(Array(day.exercises.enumerated()), id: \.offset) { _, item in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    if let group = item.superset, !group.isEmpty {
-                        Text("SS \(group)")
+            VStack(spacing: 7) {
+                ForEach(Array(day.exercises.enumerated()), id: \.offset) { index, item in
+                    HStack(spacing: 9) {
+                        Text("\(index + 1)")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(RFTheme.muted)
+                            .frame(width: 20, height: 20)
+                            .background(RFTheme.field)
+                            .clipShape(Circle())
+
+                        Text(item.name)
+                            .font(.caption)
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        if let group = item.superset, !group.isEmpty {
+                            Text("SS \(group)")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(RFTheme.accent)
+                        }
+
+                        Text("\(item.sets) × \(item.reps)")
                             .font(.caption2.bold())
-                            .foregroundStyle(RFTheme.accent)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(RFTheme.accent.opacity(0.12))
-                            .clipShape(Capsule())
+                            .foregroundStyle(RFTheme.muted)
                     }
-                    Text(item.name)
-                        .font(.caption)
-                        .lineLimit(1)
-                    Spacer()
-                    Text("\(item.sets) × \(item.reps)")
-                        .font(.caption.bold())
-                        .foregroundStyle(.secondary)
                 }
             }
 
-            HStack(spacing: 10) {
-                Button("Start", action: onStart)
-                    .buttonStyle(.borderedProminent)
-                    .tint(RFTheme.accent)
+            HStack(spacing: 8) {
+                Button(action: onStart) {
+                    Label(L10n.text("Start", "Start"), systemImage: "play.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(RFTheme.accent)
 
                 Button(action: onEdit) {
-                    Label("Edit", systemImage: "pencil")
-                }
-                .buttonStyle(.bordered)
-
-                Button(action: onSaveAsTemplate) {
-                    Label("Template", systemImage: "plus")
+                    Image(systemName: "pencil")
                 }
                 .buttonStyle(.bordered)
 
@@ -2881,13 +2908,21 @@ struct ProgramDayCard: View {
                     Image(systemName: "calendar.badge.plus")
                 }
                 .buttonStyle(.bordered)
-                .accessibilityLabel(L10n.text("Schedule workout", "Training inplannen"))
             }
         }
-        .padding()
-        .background(RFTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.08)))
+        .padding(14)
+        .background(
+            LinearGradient(
+                colors: [RFTheme.surface, RFTheme.raised.opacity(0.55)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(RFTheme.cardBorder)
+        )
     }
 }
 
@@ -3020,12 +3055,33 @@ struct TemplateCard: View {
     let onSchedule: () -> Void
     let onDelete: () -> Void
 
+    private var exerciseNames: [String] {
+        template.plannedExercises?.map(\.name)
+            ?? template.exerciseIDs.compactMap(ExerciseCatalog.find).map(\.name)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 13) {
             HStack {
-                Image(systemName: "square.stack.3d.up.fill")
-                    .foregroundStyle(RFTheme.accent)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(RFTheme.accent.opacity(0.14))
+                    Image(systemName: "square.stack.3d.up.fill")
+                        .font(.title3.bold())
+                        .foregroundStyle(RFTheme.accent)
+                }
+                .frame(width: 44, height: 44)
+
                 Spacer()
+
+                Text("\(exerciseNames.count) \(L10n.text("exercises", "oefeningen"))")
+                    .font(.caption2.bold())
+                    .foregroundStyle(RFTheme.muted)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(RFTheme.field)
+                    .clipShape(Capsule())
+
                 Menu {
                     Button(action: onEdit) {
                         Label(L10n.text("Edit Template", "Template bewerken"), systemImage: "pencil")
@@ -3048,13 +3104,15 @@ struct TemplateCard: View {
                         Label(L10n.text("Share Link", "Deellink"), systemImage: "square.and.arrow.up")
                     }
                     Button(role: .destructive, action: onDelete) {
-                        Label("Delete", systemImage: "trash")
+                        Label(L10n.text("Delete", "Verwijder"), systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .padding(8)
-                        .background(RFTheme.raised)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .font(.headline)
+                        .foregroundStyle(RFTheme.muted)
+                        .frame(width: 34, height: 34)
+                        .background(RFTheme.field)
+                        .clipShape(Circle())
                 }
             }
 
@@ -3062,28 +3120,50 @@ struct TemplateCard: View {
                 .font(.headline)
                 .lineLimit(2)
 
-            Text((template.plannedExercises?.map(\.name) ?? template.exerciseIDs.compactMap(ExerciseCatalog.find).map(\.name)).joined(separator: ", "))
-                .font(.caption)
-                .foregroundStyle(RFTheme.muted)
-                .lineLimit(4)
-
-            HStack(spacing: 8) {
-                Button("Start", action: onStart)
-                    .buttonStyle(.borderedProminent)
-                    .tint(RFTheme.accent)
-
-                Button(action: onEdit) {
-                    Image(systemName: "pencil")
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(Array(exerciseNames.prefix(3).enumerated()), id: \.offset) { index, name in
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(index == 0 ? RFTheme.accent : RFTheme.muted.opacity(0.5))
+                            .frame(width: 5, height: 5)
+                        Text(name)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("Edit template")
+
+                if exerciseNames.count > 3 {
+                    Text("+\(exerciseNames.count - 3) \(L10n.text("more", "meer"))")
+                        .font(.caption2.bold())
+                        .foregroundStyle(RFTheme.accent)
+                }
             }
+
+            Spacer(minLength: 2)
+
+            Button(action: onStart) {
+                HStack {
+                    Image(systemName: "play.fill")
+                    Text(L10n.text("Start", "Start"))
+                        .font(.subheadline.bold())
+                    Spacer()
+                    Image(systemName: "arrow.right")
+                }
+                .padding(.vertical, 7)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(RFTheme.accent)
         }
-        .padding()
-        .frame(minHeight: 180, alignment: .topLeading)
-        .background(RFTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.12)))
+        .padding(14)
+        .frame(minHeight: 198, alignment: .topLeading)
+        .background(RFTheme.heroGradient)
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(RFTheme.cardBorder)
+        )
+        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
     }
 }
 
