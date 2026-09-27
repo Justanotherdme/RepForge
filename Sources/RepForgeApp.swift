@@ -38,6 +38,21 @@ enum AppPreferences {
         return value == 0 ? 3 : max(1, min(6, value))
     }
 
+    static var defaultRestSeconds: Int {
+        let value = UserDefaults.standard.integer(forKey: "defaultRestSeconds")
+        return value == 0 ? 90 : max(15, min(600, value))
+    }
+
+    static var autoRestTimer: Bool {
+        if UserDefaults.standard.object(forKey: "autoRestTimer") == nil { return true }
+        return UserDefaults.standard.bool(forKey: "autoRestTimer")
+    }
+
+    static var progressionStepKg: Double {
+        let value = UserDefaults.standard.double(forKey: "progressionStepKg")
+        return value == 0 ? 2.5 : max(0.25, min(20, value))
+    }
+
     static var isImperial: Bool { measurementSystem == "imperial" }
     static var weightLabel: String { isImperial ? "lb" : "kg" }
     static var heightLabel: String { isImperial ? "in" : "cm" }
@@ -92,6 +107,9 @@ enum RFTheme {
         case "oled": return .black
         case "graphite": return Color(red: 0.075, green: 0.075, blue: 0.082)
         case "navy": return Color(red: 0.025, green: 0.055, blue: 0.095)
+        case "emerald": return Color(red: 0.025, green: 0.080, blue: 0.065)
+        case "orange": return Color(red: 0.105, green: 0.055, blue: 0.025)
+        case "purple": return Color(red: 0.070, green: 0.040, blue: 0.105)
         default: return Color(red: 0.055, green: 0.070, blue: 0.078)
         }
     }
@@ -104,6 +122,9 @@ enum RFTheme {
         case "oled": return Color(red: 0.055, green: 0.055, blue: 0.060)
         case "graphite": return Color(red: 0.125, green: 0.125, blue: 0.135)
         case "navy": return Color(red: 0.070, green: 0.105, blue: 0.155)
+        case "emerald": return Color(red: 0.055, green: 0.145, blue: 0.110)
+        case "orange": return Color(red: 0.175, green: 0.095, blue: 0.045)
+        case "purple": return Color(red: 0.125, green: 0.075, blue: 0.180)
         default: return Color(red: 0.105, green: 0.135, blue: 0.150)
         }
     }
@@ -116,6 +137,9 @@ enum RFTheme {
         case "oled": return Color(red: 0.095, green: 0.095, blue: 0.105)
         case "graphite": return Color(red: 0.165, green: 0.165, blue: 0.180)
         case "navy": return Color(red: 0.105, green: 0.145, blue: 0.205)
+        case "emerald": return Color(red: 0.080, green: 0.190, blue: 0.145)
+        case "orange": return Color(red: 0.220, green: 0.125, blue: 0.060)
+        case "purple": return Color(red: 0.175, green: 0.105, blue: 0.245)
         default: return Color(red: 0.140, green: 0.175, blue: 0.190)
         }
     }
@@ -585,14 +609,16 @@ final class WorkoutSession {
     var title: String
     var startedAt: Date
     var endedAt: Date?
+    var note: String?
     @Relationship(deleteRule: .cascade)
     var exercises: [ExerciseLog]
 
-    init(title: String, startedAt: Date = .now, exercises: [ExerciseLog] = []) {
+    init(title: String, startedAt: Date = .now, exercises: [ExerciseLog] = [], note: String? = nil) {
         self.id = UUID()
         self.title = title
         self.startedAt = startedAt
         self.exercises = exercises
+        self.note = note
     }
 
     var duration: TimeInterval {
@@ -612,6 +638,8 @@ final class ExerciseLog {
     var targetReps: String?
     var coachingNote: String?
     var supersetGroup: String?
+    var sessionNote: String?
+    var restSeconds: Int?
     @Relationship(deleteRule: .cascade)
     var sets: [WorkoutSet]
 
@@ -621,6 +649,8 @@ final class ExerciseLog {
         targetReps: String? = nil,
         coachingNote: String? = nil,
         supersetGroup: String? = nil,
+        sessionNote: String? = nil,
+        restSeconds: Int? = nil,
         sets: [WorkoutSet] = []
     ) {
         self.id = UUID()
@@ -629,6 +659,8 @@ final class ExerciseLog {
         self.targetReps = targetReps
         self.coachingNote = coachingNote
         self.supersetGroup = supersetGroup
+        self.sessionNote = sessionNote
+        self.restSeconds = restSeconds
         self.sets = sets
     }
 }
@@ -641,13 +673,39 @@ final class WorkoutSet {
     var reps: Int
     var completed: Bool
     var completedAt: Date?
+    var setTypeRaw: String?
+    var rpe: Double?
+    var rir: Int?
+    var note: String?
 
-    init(order: Int, weightKg: Double = 0, reps: Int = 0, completed: Bool = false) {
+    init(
+        order: Int,
+        weightKg: Double = 0,
+        reps: Int = 0,
+        completed: Bool = false,
+        setTypeRaw: String? = nil,
+        rpe: Double? = nil,
+        rir: Int? = nil,
+        note: String? = nil
+    ) {
         self.id = UUID()
         self.order = order
         self.weightKg = weightKg
         self.reps = reps
         self.completed = completed
+        self.setTypeRaw = setTypeRaw
+        self.rpe = rpe
+        self.rir = rir
+        self.note = note
+    }
+
+    var setType: String {
+        get { setTypeRaw ?? "working" }
+        set { setTypeRaw = newValue == "working" ? nil : newValue }
+    }
+
+    var countsForPR: Bool {
+        completed && setType != "warmup"
     }
 }
 
@@ -682,7 +740,7 @@ enum Metrics {
             let sets = session.exercises
                 .filter { $0.exerciseID == exerciseID }
                 .flatMap(\.sets)
-                .filter(\.completed)
+                .filter(\.countsForPR)
             guard !sets.isEmpty else { return nil }
             let best = sets.map(\.weightKg).max() ?? 0
             let oneRM = sets.map { estimated1RM(weight: $0.weightKg, reps: $0.reps) }.max() ?? 0
@@ -698,7 +756,7 @@ enum Metrics {
             .max(by: { ($0.endedAt ?? $0.startedAt) < ($1.endedAt ?? $1.startedAt) }),
               let log = latest.exercises.first(where: { $0.exerciseID == exerciseID })
         else { return [] }
-        return log.sets.filter(\.completed).sorted { $0.order < $1.order }.map { ($0.weightKg, $0.reps) }
+        return log.sets.filter(\.countsForPR).sorted { $0.order < $1.order }.map { ($0.weightKg, $0.reps) }
     }
 
     static func personalBest(exerciseID: String, sessions: [WorkoutSession]) -> Double {
@@ -1162,6 +1220,9 @@ struct StartWorkoutView: View {
                                     onEdit: {
                                         editingTemplate = template
                                     },
+                                    onDuplicate: {
+                                        duplicateTemplate(template)
+                                    },
                                     onDelete: {
                                         context.delete(template)
                                         try? context.save()
@@ -1240,6 +1301,17 @@ struct StartWorkoutView: View {
                 ActiveWorkoutView(session: session)
             }
         }
+    }
+
+    private func duplicateTemplate(_ template: WorkoutTemplate) {
+        let copy = WorkoutTemplate(
+            name: "\(template.name) \(L10n.text("Copy", "Kopie"))",
+            exerciseIDs: template.exerciseIDs,
+            plan: template.plannedExercises
+        )
+        context.insert(copy)
+        try? context.save()
+        Haptics.light()
     }
 
     private func createSession(title: String, exerciseIDs: [String]) -> WorkoutSession {
@@ -1517,6 +1589,7 @@ struct TemplateCard: View {
     let template: WorkoutTemplate
     let onStart: () -> Void
     let onEdit: () -> Void
+    let onDuplicate: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -1527,7 +1600,10 @@ struct TemplateCard: View {
                 Spacer()
                 Menu {
                     Button(action: onEdit) {
-                        Label("Edit Template", systemImage: "pencil")
+                        Label(L10n.text("Edit Template", "Template bewerken"), systemImage: "pencil")
+                    }
+                    Button(action: onDuplicate) {
+                        Label(L10n.text("Duplicate", "Dupliceren"), systemImage: "plus.square.on.square")
                     }
                     Button(role: .destructive, action: onDelete) {
                         Label("Delete", systemImage: "trash")
@@ -1780,15 +1856,25 @@ struct ActiveWorkoutView: View {
     @Environment(\.modelContext) private var context
     @Bindable var session: WorkoutSession
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var allSessions: [WorkoutSession]
+
     @State private var showExercisePicker = false
     @State private var pickerIDs: [String] = []
     @State private var showFinishConfirm = false
+    @State private var showSummary = false
+    @State private var restRemaining = 0
+    @State private var restOriginal = 0
+    @State private var showWorkoutNote = false
+
     @AppStorage("keepScreenAwake") private var keepScreenAwake = true
+    @AppStorage("autoRestTimer") private var autoRestTimer = true
+    @AppStorage("defaultRestSeconds") private var defaultRestSeconds = 90
+
+    private let restTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 20) {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(session.title).font(.largeTitle.bold())
@@ -1804,17 +1890,57 @@ struct ActiveWorkoutView: View {
                             .font(.headline)
                     }
 
+                    Button {
+                        showWorkoutNote.toggle()
+                    } label: {
+                        HStack {
+                            Label(
+                                (session.note ?? "").isEmpty
+                                    ? L10n.text("Add workout note", "Trainingsnotitie toevoegen")
+                                    : L10n.text("Workout note", "Trainingsnotitie"),
+                                systemImage: "note.text"
+                            )
+                            Spacer()
+                            Image(systemName: showWorkoutNote ? "chevron.up" : "chevron.down")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(RFTheme.accent)
+
+                    if showWorkoutNote {
+                        TextField(
+                            L10n.text("How did the workout feel?", "Hoe voelde de training?"),
+                            text: Binding(
+                                get: { session.note ?? "" },
+                                set: { session.note = $0; try? context.save() }
+                            ),
+                            axis: .vertical
+                        )
+                        .lineLimit(2...5)
+                        .padding(12)
+                        .background(RFTheme.field)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+
                     if session.exercises.isEmpty {
-                        EmptyCard(icon: "dumbbell", title: "No exercises yet", text: "Add an exercise to begin logging sets.")
+                        EmptyCard(
+                            icon: "dumbbell",
+                            title: L10n.text("No exercises yet", "Nog geen oefeningen"),
+                            text: L10n.text("Add an exercise to begin logging sets.", "Voeg een oefening toe om sets te registreren.")
+                        )
                     }
 
                     ForEach(session.exercises.sorted(by: { $0.order < $1.order })) { log in
                         WorkoutExerciseBlock(
                             log: log,
                             sessions: allSessions,
-                            onRemoveExercise: {
-                                removeExercise(log)
-                            }
+                            onSetCompleted: {
+                                startRestTimer(for: log)
+                            },
+                            onMoveUp: { moveExercise(log, delta: -1) },
+                            onMoveDown: { moveExercise(log, delta: 1) },
+                            onDuplicate: { duplicateExercise(log) },
+                            onRemoveExercise: { removeExercise(log) }
                         )
                     }
 
@@ -1830,31 +1956,70 @@ struct ActiveWorkoutView: View {
                     .tint(RFTheme.accent)
                 }
                 .padding()
+                .padding(.bottom, restRemaining > 0 ? 88 : 0)
             }
             .scrollDismissesKeyboard(.interactively)
             .background(RFTheme.bg)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
+                    Button { dismiss() } label: {
                         Image(systemName: "chevron.down")
                     }
                 }
-
             }
-            .confirmationDialog("Finish this workout?", isPresented: $showFinishConfirm) {
-                Button("Finish Workout") {
-                    session.endedAt = .now
-                    try? context.save()
-                    dismiss()
+            .safeAreaInset(edge: .bottom) {
+                if restRemaining > 0 {
+                    RestTimerBanner(
+                        remaining: restRemaining,
+                        original: max(restOriginal, 1),
+                        onAdd30: {
+                            restRemaining += 30
+                            restOriginal = max(restOriginal, restRemaining)
+                            Haptics.light()
+                        },
+                        onSkip: {
+                            restRemaining = 0
+                            Haptics.light()
+                        }
+                    )
+                    .padding(.horizontal)
+                    .padding(.bottom, 4)
                 }
-                Button("Cancel", role: .cancel) {}
+            }
+            .onReceive(restTicker) { _ in
+                guard restRemaining > 0 else { return }
+                restRemaining -= 1
+                if restRemaining == 0 {
+                    Haptics.success()
+                }
+            }
+            .confirmationDialog(
+                L10n.text("Finish this workout?", "Deze training afronden?"),
+                isPresented: $showFinishConfirm
+            ) {
+                Button(L10n.text("Finish Workout", "Training afronden")) {
+                    finishWorkout()
+                }
+                Button(L10n.text("Cancel", "Annuleren"), role: .cancel) {}
             } message: {
-                Text("Completed sets, weights and reps will be added to your history.")
+                Text(L10n.text(
+                    "Completed sets, weights and reps will be added to your history.",
+                    "Voltooide sets, gewichten en herhalingen worden aan je geschiedenis toegevoegd."
+                ))
             }
             .sheet(isPresented: $showExercisePicker, onDismiss: addPickedExercises) {
                 ExercisePickerView(selectedIDs: $pickerIDs)
+            }
+            .sheet(isPresented: $showSummary) {
+                WorkoutSummaryView(
+                    session: session,
+                    sessions: allSessions,
+                    onDone: {
+                        showSummary = false
+                        dismiss()
+                    }
+                )
+                .interactiveDismissDisabled()
             }
             .onAppear {
                 UIApplication.shared.isIdleTimerDisabled = keepScreenAwake
@@ -1868,6 +2033,22 @@ struct ActiveWorkoutView: View {
         }
     }
 
+    private func finishWorkout() {
+        session.endedAt = .now
+        restRemaining = 0
+        try? context.save()
+        Haptics.success()
+        showSummary = true
+    }
+
+    private func startRestTimer(for log: ExerciseLog) {
+        guard autoRestTimer else { return }
+        let seconds = log.restSeconds ?? defaultRestSeconds
+        guard seconds > 0 else { return }
+        restRemaining = seconds
+        restOriginal = seconds
+    }
+
     private func addPickedExercises() {
         guard !pickerIDs.isEmpty else { return }
         let existing = Set(session.exercises.map(\.exerciseID))
@@ -1876,11 +2057,53 @@ struct ActiveWorkoutView: View {
             session.exercises.append(ExerciseLog(
                 exerciseID: id,
                 order: nextOrder,
-                sets: (0..<3).map { WorkoutSet(order: $0) }
+                restSeconds: defaultRestSeconds,
+                sets: (0..<AppPreferences.defaultSets).map { WorkoutSet(order: $0) }
             ))
             nextOrder += 1
         }
         pickerIDs = []
+        try? context.save()
+    }
+
+    private func moveExercise(_ log: ExerciseLog, delta: Int) {
+        var ordered = session.exercises.sorted(by: { $0.order < $1.order })
+        guard let current = ordered.firstIndex(where: { $0.id == log.id }) else { return }
+        let destination = current + delta
+        guard ordered.indices.contains(destination) else { return }
+        ordered.swapAt(current, destination)
+        for (index, item) in ordered.enumerated() {
+            item.order = index
+        }
+        Haptics.light()
+        try? context.save()
+    }
+
+    private func duplicateExercise(_ log: ExerciseLog) {
+        let copySets = log.sets.sorted(by: { $0.order < $1.order }).map {
+            WorkoutSet(
+                order: $0.order,
+                weightKg: $0.weightKg,
+                reps: $0.reps,
+                setTypeRaw: $0.setTypeRaw,
+                rpe: $0.rpe,
+                rir: $0.rir
+            )
+        }
+        let next = (session.exercises.map(\.order).max() ?? -1) + 1
+        session.exercises.append(
+            ExerciseLog(
+                exerciseID: log.exerciseID,
+                order: next,
+                targetReps: log.targetReps,
+                coachingNote: log.coachingNote,
+                supersetGroup: log.supersetGroup,
+                sessionNote: log.sessionNote,
+                restSeconds: log.restSeconds,
+                sets: copySets
+            )
+        )
+        Haptics.light()
         try? context.save()
     }
 
@@ -1898,12 +2121,64 @@ struct ActiveWorkoutView: View {
     }
 }
 
+struct RestTimerBanner: View {
+    let remaining: Int
+    let original: Int
+    let onAdd30: () -> Void
+    let onSkip: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .stroke(RFTheme.raised, lineWidth: 5)
+                Circle()
+                    .trim(from: 0, to: min(1, Double(remaining) / Double(max(original, 1))))
+                    .stroke(RFTheme.accent, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Text(durationString(TimeInterval(remaining)))
+                    .font(.caption.bold())
+            }
+            .frame(width: 58, height: 58)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(L10n.text("Rest timer", "Rusttimer"))
+                    .font(.headline)
+                Text(L10n.text("Recover, then hit the next set.", "Herstel en begin daarna aan je volgende set."))
+                    .font(.caption)
+                    .foregroundStyle(RFTheme.muted)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button("+30", action: onAdd30)
+                .buttonStyle(.bordered)
+
+            Button(L10n.text("Skip", "Stop"), action: onSkip)
+                .buttonStyle(.borderedProminent)
+                .tint(RFTheme.accent)
+        }
+        .padding(12)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .shadow(radius: 8)
+    }
+}
+
+
 struct WorkoutExerciseBlock: View {
     @Environment(\.modelContext) private var context
     @Bindable var log: ExerciseLog
     let sessions: [WorkoutSession]
+    let onSetCompleted: () -> Void
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+    let onDuplicate: () -> Void
     let onRemoveExercise: () -> Void
+
     @State private var showRemoveExerciseConfirm = false
+    @State private var showOptions = false
 
     private var exercise: ExerciseDefinition? { ExerciseCatalog.find(log.exerciseID) }
     private var previous: [(Double, Int)] { Metrics.previousSets(exerciseID: log.exerciseID, sessions: sessions) }
@@ -1923,9 +2198,12 @@ struct WorkoutExerciseBlock: View {
                                 .foregroundStyle(RFTheme.accent)
 
                             HStack(spacing: 8) {
-                                Text(best > 0 ? "Best: \(AppPreferences.displayWeight(best).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)" : L10n.text("No previous best", "Nog geen persoonlijk record"))
+                                Text(best > 0
+                                     ? "Best: \(AppPreferences.displayWeight(best).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)"
+                                     : L10n.text("No previous best", "Nog geen persoonlijk record"))
+
                                 if let target = log.targetReps {
-                                    Text("Target \(target) reps")
+                                    Text("\(L10n.text("Target", "Doel")) \(target)")
                                         .foregroundStyle(RFTheme.accent)
                                 }
                             }
@@ -1934,6 +2212,12 @@ struct WorkoutExerciseBlock: View {
 
                             if let note = log.coachingNote {
                                 Text(note)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            if let sessionNote = log.sessionNote, !sessionNote.isEmpty {
+                                Label(sessionNote, systemImage: "note.text")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -1952,13 +2236,40 @@ struct WorkoutExerciseBlock: View {
                         NavigationLink {
                             ExerciseDetailView(exercise: ex)
                         } label: {
-                            Label("Exercise Guide", systemImage: "info.circle")
+                            Label(L10n.text("Exercise Guide", "Oefening uitleg"), systemImage: "info.circle")
                         }
+
+                        Button {
+                            copyPreviousSets()
+                        } label: {
+                            Label(L10n.text("Copy Previous Sets", "Vorige sets kopiëren"), systemImage: "doc.on.doc")
+                        }
+                        .disabled(previous.isEmpty)
+
+                        Button(action: onMoveUp) {
+                            Label(L10n.text("Move Up", "Omhoog"), systemImage: "arrow.up")
+                        }
+
+                        Button(action: onMoveDown) {
+                            Label(L10n.text("Move Down", "Omlaag"), systemImage: "arrow.down")
+                        }
+
+                        Button(action: onDuplicate) {
+                            Label(L10n.text("Duplicate Exercise", "Oefening dupliceren"), systemImage: "plus.square.on.square")
+                        }
+
+                        Button {
+                            showOptions = true
+                        } label: {
+                            Label(L10n.text("Exercise Options", "Oefening opties"), systemImage: "slider.horizontal.3")
+                        }
+
+                        Divider()
 
                         Button(role: .destructive) {
                             showRemoveExerciseConfirm = true
                         } label: {
-                            Label("Remove Exercise", systemImage: "trash")
+                            Label(L10n.text("Remove Exercise", "Oefening verwijderen"), systemImage: "trash")
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -1972,12 +2283,12 @@ struct WorkoutExerciseBlock: View {
             }
 
             HStack {
-                Text("Set").frame(width: 42, alignment: .leading)
+                Text(L10n.text("Set", "Set")).frame(width: 42, alignment: .leading)
                 if AppPreferences.showPreviousSets {
                     Text(L10n.text("Previous", "Vorige")).frame(maxWidth: .infinity)
                 }
                 Text(AppPreferences.weightLabel).frame(width: 76)
-                Text("Reps").frame(width: 64)
+                Text(L10n.text("Reps", "Reps")).frame(width: 64)
                 Image(systemName: "checkmark").frame(width: 34)
             }
             .font(.caption.bold())
@@ -1988,6 +2299,9 @@ struct WorkoutExerciseBlock: View {
                     set: set,
                     previous: previous.indices.contains(set.order) ? previous[set.order] : nil,
                     canDelete: log.sets.count > 1,
+                    onCompleted: { completed in
+                        if completed { onSetCompleted() }
+                    },
                     onDelete: {
                         removeSet(set)
                     }
@@ -1997,7 +2311,7 @@ struct WorkoutExerciseBlock: View {
             Button {
                 addSet()
             } label: {
-                Label("Add Set", systemImage: "plus")
+                Label(L10n.text("Add Set", "Set toevoegen"), systemImage: "plus")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -2006,18 +2320,43 @@ struct WorkoutExerciseBlock: View {
         .padding()
         .background(RFTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 20))
+        .sheet(isPresented: $showOptions) {
+            ExerciseLogOptionsView(log: log)
+        }
         .confirmationDialog(
-            "Remove \(exercise?.name ?? "exercise")?",
+            L10n.text("Remove \(exercise?.name ?? "exercise")?", "\(exercise?.name ?? "oefening") verwijderen?"),
             isPresented: $showRemoveExerciseConfirm,
             titleVisibility: .visible
         ) {
-            Button("Remove Exercise", role: .destructive) {
+            Button(L10n.text("Remove Exercise", "Oefening verwijderen"), role: .destructive) {
                 onRemoveExercise()
             }
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.text("Cancel", "Annuleren"), role: .cancel) {}
         } message: {
-            Text("This removes the exercise and its sets from the current workout only.")
+            Text(L10n.text(
+                "This removes the exercise and its sets from the current workout only.",
+                "Dit verwijdert de oefening en de sets alleen uit deze training."
+            ))
         }
+    }
+
+    private func copyPreviousSets() {
+        guard !previous.isEmpty else { return }
+
+        while log.sets.count < previous.count {
+            log.sets.append(WorkoutSet(order: log.sets.count))
+        }
+
+        for (index, values) in previous.enumerated() {
+            guard log.sets.indices.contains(index) else { continue }
+            log.sets[index].weightKg = values.0
+            log.sets[index].reps = values.1
+            log.sets[index].completed = false
+            log.sets[index].completedAt = nil
+        }
+
+        Haptics.light()
+        try? context.save()
     }
 
     private func addSet() {
@@ -2042,13 +2381,66 @@ struct WorkoutExerciseBlock: View {
     }
 }
 
+struct ExerciseLogOptionsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
+    @Bindable var log: ExerciseLog
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(L10n.text("Rest timer", "Rusttimer")) {
+                    Stepper(
+                        "\(L10n.text("Rest", "Rust")): \(log.restSeconds ?? AppPreferences.defaultRestSeconds)s",
+                        value: Binding(
+                            get: { log.restSeconds ?? AppPreferences.defaultRestSeconds },
+                            set: { log.restSeconds = $0 }
+                        ),
+                        in: 15...600,
+                        step: 15
+                    )
+
+                    Button(L10n.text("Use app default", "Gebruik app-standaard")) {
+                        log.restSeconds = nil
+                    }
+                }
+
+                Section(L10n.text("Workout note", "Trainingsnotitie")) {
+                    TextField(
+                        L10n.text("Note for this exercise", "Notitie voor deze oefening"),
+                        text: Binding(
+                            get: { log.sessionNote ?? "" },
+                            set: { log.sessionNote = $0 }
+                        ),
+                        axis: .vertical
+                    )
+                    .lineLimit(2...5)
+                }
+            }
+            .navigationTitle(L10n.text("Exercise Options", "Oefening opties"))
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.done) {
+                        try? context.save()
+                        dismiss()
+                    }
+                    .bold()
+                }
+            }
+        }
+    }
+}
+
+
 struct WorkoutSetRow: View {
     @Environment(\.modelContext) private var context
     @Bindable var set: WorkoutSet
     let previous: (Double, Int)?
     let canDelete: Bool
+    let onCompleted: (Bool) -> Void
     let onDelete: () -> Void
 
+    @State private var showSetOptions = false
     @State private var dragOffset: CGFloat = 0
     @State private var restingOffset: CGFloat = 0
     @State private var dragAxis: SwipeAxis?
@@ -2145,15 +2537,39 @@ struct WorkoutSetRow: View {
                 }
         }
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        .sheet(isPresented: $showSetOptions) {
+            SetOptionsView(set: set)
+        }
+    }
+
+    private func setTypeShort(_ type: String) -> String {
+        switch type {
+        case "warmup": return "WU"
+        case "drop": return "DROP"
+        case "failure": return "FAIL"
+        default: return ""
+        }
     }
 
     private var rowContent: some View {
         HStack(spacing: 8) {
-            Text("\(set.order + 1)")
-                .font(.headline)
+            Button {
+                showSetOptions = true
+            } label: {
+                VStack(spacing: 1) {
+                    Text("\(set.order + 1)")
+                        .font(.headline)
+                    if set.setType != "working" {
+                        Text(setTypeShort(set.setType))
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(RFTheme.accent)
+                    }
+                }
                 .frame(width: 42, height: 42)
                 .background(RFTheme.field)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
 
             if AppPreferences.showPreviousSets {
                 Text(previous.map {
@@ -2193,6 +2609,7 @@ struct WorkoutSetRow: View {
                 set.completedAt = set.completed ? .now : nil
                 if set.completed { Haptics.success() } else { Haptics.light() }
                 try? context.save()
+                onCompleted(set.completed)
             } label: {
                 Image(systemName: set.completed ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
@@ -2201,6 +2618,109 @@ struct WorkoutSetRow: View {
             .frame(width: 34)
         }
         .frame(height: 44)
+    }
+}
+
+struct SetOptionsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
+    @Bindable var set: WorkoutSet
+
+    @State private var useRPE: Bool
+    @State private var useRIR: Bool
+
+    init(set: WorkoutSet) {
+        self.set = set
+        _useRPE = State(initialValue: set.rpe != nil)
+        _useRIR = State(initialValue: set.rir != nil)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(L10n.text("Set type", "Settype")) {
+                    Picker(
+                        L10n.text("Type", "Type"),
+                        selection: Binding(
+                            get: { set.setType },
+                            set: { set.setType = $0 }
+                        )
+                    ) {
+                        Text(L10n.text("Working", "Werkset")).tag("working")
+                        Text(L10n.text("Warm-up", "Warming-up")).tag("warmup")
+                        Text(L10n.text("Drop set", "Dropset")).tag("drop")
+                        Text(L10n.text("To failure", "Tot falen")).tag("failure")
+                    }
+                    .pickerStyle(.segmented)
+
+                    if set.setType == "warmup" {
+                        Text(L10n.text(
+                            "Warm-up sets are excluded from personal-record calculations.",
+                            "Warming-upsets tellen niet mee voor persoonlijke records."
+                        ))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("RPE / RIR") {
+                    Toggle("RPE", isOn: $useRPE)
+                        .onChange(of: useRPE) { _, enabled in
+                            set.rpe = enabled ? (set.rpe ?? 8) : nil
+                        }
+
+                    if useRPE {
+                        Stepper(
+                            "RPE \(set.rpe?.formatted(.number.precision(.fractionLength(0...1))) ?? "8")",
+                            value: Binding(
+                                get: { set.rpe ?? 8 },
+                                set: { set.rpe = $0 }
+                            ),
+                            in: 5...10,
+                            step: 0.5
+                        )
+                    }
+
+                    Toggle("RIR", isOn: $useRIR)
+                        .onChange(of: useRIR) { _, enabled in
+                            set.rir = enabled ? (set.rir ?? 2) : nil
+                        }
+
+                    if useRIR {
+                        Stepper(
+                            "RIR \(set.rir ?? 2)",
+                            value: Binding(
+                                get: { set.rir ?? 2 },
+                                set: { set.rir = $0 }
+                            ),
+                            in: 0...6
+                        )
+                    }
+                }
+
+                Section(L10n.text("Set note", "Setnotitie")) {
+                    TextField(
+                        L10n.text("Optional note", "Optionele notitie"),
+                        text: Binding(
+                            get: { set.note ?? "" },
+                            set: { set.note = $0 }
+                        ),
+                        axis: .vertical
+                    )
+                    .lineLimit(2...5)
+                }
+            }
+            .navigationTitle(L10n.text("Set \(set.order + 1)", "Set \(set.order + 1)"))
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.done) {
+                        try? context.save()
+                        dismiss()
+                    }
+                    .bold()
+                }
+            }
+        }
     }
 }
 
@@ -2297,6 +2817,164 @@ struct DoneNumberField: UIViewRepresentable {
 }
 
 
+struct WorkoutSummaryView: View {
+    let session: WorkoutSession
+    let sessions: [WorkoutSession]
+    let onDone: () -> Void
+
+    private var completedSets: [WorkoutSet] {
+        session.exercises.flatMap(\.sets).filter(\.completed)
+    }
+
+    private var prs: [(String, Double, Double)] {
+        let previousSessions = sessions.filter { $0.id != session.id && $0.endedAt != nil }
+
+        return session.exercises.compactMap { log in
+            let current = log.sets.filter(\.countsForPR).map(\.weightKg).max() ?? 0
+            guard current > 0 else { return nil }
+            let previous = Metrics.personalBest(exerciseID: log.exerciseID, sessions: previousSessions)
+            guard current > previous else { return nil }
+            let name = ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise"
+            return (name, current, previous)
+        }
+    }
+
+    private var progressionSuggestions: [(String, Double)] {
+        session.exercises.compactMap { log in
+            guard let target = log.targetReps,
+                  let upper = highestRepTarget(target) else { return nil }
+
+            let workingSets = log.sets.filter { $0.countsForPR && $0.setType == "working" }
+            guard !workingSets.isEmpty,
+                  workingSets.allSatisfy({ $0.reps >= upper }),
+                  let current = workingSets.map(\.weightKg).max(),
+                  current > 0 else { return nil }
+
+            let name = ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise"
+            return (name, current + AppPreferences.progressionStepKg)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(spacing: 8) {
+                        Image(systemName: prs.isEmpty ? "checkmark.circle.fill" : "trophy.fill")
+                            .font(.system(size: 48))
+                            .foregroundStyle(prs.isEmpty ? RFTheme.success : RFTheme.accent)
+                        Text(L10n.text("Workout Complete", "Training voltooid"))
+                            .font(.largeTitle.bold())
+                        Text(session.title)
+                            .foregroundStyle(RFTheme.muted)
+                    }
+                    .frame(maxWidth: .infinity)
+
+                    HStack {
+                        StatCard(title: L10n.text("Duration", "Duur"), value: durationString(session.duration), icon: "clock.fill")
+                        StatCard(title: L10n.text("Volume", "Volume"), value: "\(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel)", icon: "chart.bar.fill")
+                    }
+
+                    HStack {
+                        StatCard(title: L10n.text("Completed sets", "Voltooide sets"), value: "\(completedSets.count)", icon: "checkmark.circle.fill")
+                        StatCard(title: L10n.text("PRs", "PR's"), value: "\(prs.count)", icon: "trophy.fill")
+                    }
+
+                    if !prs.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(L10n.text("New personal records", "Nieuwe persoonlijke records"))
+                                .font(.title3.bold())
+
+                            ForEach(Array(prs.enumerated()), id: \.offset) { _, pr in
+                                HStack {
+                                    Image(systemName: "trophy.fill")
+                                        .foregroundStyle(RFTheme.accent)
+                                    VStack(alignment: .leading) {
+                                        Text(pr.0).bold()
+                                        Text(
+                                            pr.2 > 0
+                                            ? "\(AppPreferences.displayWeight(pr.2).formatted(.number.precision(.fractionLength(0...2)))) → \(AppPreferences.displayWeight(pr.1).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)"
+                                            : "\(AppPreferences.displayWeight(pr.1).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)"
+                                        )
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(12)
+                                .background(RFTheme.surface)
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                            }
+                        }
+                    }
+
+                    if !progressionSuggestions.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(L10n.text("Next workout suggestions", "Suggesties voor volgende training"))
+                                .font(.title3.bold())
+
+                            ForEach(Array(progressionSuggestions.enumerated()), id: \.offset) { _, suggestion in
+                                HStack {
+                                    Image(systemName: "arrow.up.right.circle.fill")
+                                        .foregroundStyle(RFTheme.success)
+                                    VStack(alignment: .leading) {
+                                        Text(suggestion.0).bold()
+                                        Text(
+                                            "\(L10n.text("Consider", "Overweeg")) \(AppPreferences.displayWeight(suggestion.1).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)"
+                                        )
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(12)
+                                .background(RFTheme.surface)
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                            }
+
+                            Text(L10n.text(
+                                "Suggestions are based on hitting the top of the programmed rep range for all working sets.",
+                                "Suggesties zijn gebaseerd op het behalen van de bovenkant van de herhalingsrange voor alle werksets."
+                            ))
+                            .font(.caption)
+                            .foregroundStyle(RFTheme.muted)
+                        }
+                    }
+
+                    if let note = session.note, !note.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label(L10n.text("Workout note", "Trainingsnotitie"), systemImage: "note.text")
+                                .font(.headline)
+                            Text(note)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding()
+                        .background(RFTheme.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+
+                    Button(L10n.done, action: onDone)
+                        .buttonStyle(.borderedProminent)
+                        .tint(RFTheme.accent)
+                        .frame(maxWidth: .infinity)
+                        .controlSize(.large)
+                }
+                .padding()
+            }
+            .background(RFTheme.bg)
+            .navigationTitle(L10n.text("Summary", "Samenvatting"))
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private func highestRepTarget(_ text: String) -> Int? {
+        let numbers = text
+            .split(whereSeparator: { !$0.isNumber })
+            .compactMap { Int($0) }
+        return numbers.max()
+    }
+}
+
 // MARK: - History
 
 struct HistoryView: View {
@@ -2346,8 +3024,16 @@ struct SessionDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if let note = session.note, !note.isEmpty {
+                    Label(note, systemImage: "note.text")
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RFTheme.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+
                 HStack {
-                    StatCard(title: "Duration", value: durationString(session.duration), icon: "clock.fill")
+                    StatCard(title: L10n.text("Duration", "Duur"), value: durationString(session.duration), icon: "clock.fill")
                     StatCard(title: L10n.text("Volume", "Volume"), value: "\(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel)", icon: "chart.bar.fill")
                 }
 
@@ -2360,8 +3046,23 @@ struct SessionDetailView: View {
                             HStack {
                                 Text("Set \(set.order + 1)")
                                 Spacer()
-                                Text("\(AppPreferences.displayWeight(set.weightKg).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel) × \(set.reps)")
-                                    .bold()
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text("\(AppPreferences.displayWeight(set.weightKg).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel) × \(set.reps)")
+                                        .bold()
+                                    HStack(spacing: 6) {
+                                        if set.setType != "working" {
+                                            Text(set.setType.capitalized)
+                                        }
+                                        if let rpe = set.rpe {
+                                            Text("RPE \(rpe.formatted(.number.precision(.fractionLength(0...1))))")
+                                        }
+                                        if let rir = set.rir {
+                                            Text("RIR \(rir)")
+                                        }
+                                    }
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                }
                             }
                             .font(.subheadline)
                         }
@@ -2812,8 +3513,18 @@ struct ProfileView: View {
                         Text(profile.bio).foregroundStyle(RFTheme.muted)
 
                         HStack {
-                            StatCard(title: "Workouts", value: "\(completed.count)", icon: "dumbbell.fill")
+                            StatCard(title: L10n.text("Workouts", "Trainingen"), value: "\(completed.count)", icon: "dumbbell.fill")
                             StatCard(title: L10n.text("Total Volume", "Totaal volume"), value: "\(Int(AppPreferences.displayVolume(completed.reduce(0) { $0 + $1.totalVolume }))) \(AppPreferences.weightLabel)", icon: "chart.bar.fill")
+                        }
+
+                        HStack {
+                            StatCard(title: L10n.text("This week", "Deze week"), value: "\(workoutsThisWeek)", icon: "calendar")
+                            StatCard(title: L10n.text("Current streak", "Huidige reeks"), value: "\(currentStreak) \(L10n.text("wk", "wk"))", icon: "flame.fill")
+                        }
+
+                        HStack {
+                            StatCard(title: L10n.text("Completed sets", "Voltooide sets"), value: "\(totalCompletedSets)", icon: "checkmark.circle.fill")
+                            StatCard(title: L10n.text("Avg duration", "Gem. duur"), value: averageDuration, icon: "timer")
                         }
 
                         VStack(alignment: .leading, spacing: 12) {
@@ -2851,6 +3562,42 @@ struct ProfileView: View {
                 }
             }
         }
+    }
+
+    private var workoutsThisWeek: Int {
+        let calendar = Calendar.current
+        guard let start = calendar.dateInterval(of: .weekOfYear, for: .now)?.start else { return 0 }
+        return completed.filter { $0.startedAt >= start }.count
+    }
+
+    private var totalCompletedSets: Int {
+        completed.reduce(0) { partial, session in
+            partial + session.exercises.flatMap(\.sets).filter(\.completed).count
+        }
+    }
+
+    private var averageDuration: String {
+        guard !completed.isEmpty else { return "00:00" }
+        let average = completed.reduce(0.0) { $0 + $1.duration } / Double(completed.count)
+        return durationString(average)
+    }
+
+    private var currentStreak: Int {
+        let calendar = Calendar.current
+        let weeks = Set(completed.compactMap {
+            calendar.dateInterval(of: .weekOfYear, for: $0.startedAt)?.start
+        })
+
+        guard let currentWeek = calendar.dateInterval(of: .weekOfYear, for: .now)?.start else { return 0 }
+
+        var count = 0
+        var cursor = currentWeek
+        while weeks.contains(cursor) {
+            count += 1
+            guard let previous = calendar.date(byAdding: .weekOfYear, value: -1, to: cursor) else { break }
+            cursor = previous
+        }
+        return count
     }
 
     private var activityData: [(date: Date, count: Int)] {
@@ -2921,6 +3668,152 @@ struct EditProfileView: View {
 
 // MARK: - Settings
 
+struct ThemeSelector: View {
+    @Binding var selection: String
+
+    private let themes: [(id: String, name: String, bg: Color, card: Color, accent: Color)] = [
+        ("forge", "Forge Blue", Color(red: 0.055, green: 0.070, blue: 0.078), Color(red: 0.105, green: 0.135, blue: 0.150), Color(red: 0.18, green: 0.63, blue: 1.0)),
+        ("oled", "OLED", .black, Color(red: 0.055, green: 0.055, blue: 0.060), Color(red: 0.18, green: 0.63, blue: 1.0)),
+        ("graphite", "Graphite", Color(red: 0.075, green: 0.075, blue: 0.082), Color(red: 0.125, green: 0.125, blue: 0.135), Color(red: 0.18, green: 0.63, blue: 1.0)),
+        ("navy", "Navy", Color(red: 0.025, green: 0.055, blue: 0.095), Color(red: 0.070, green: 0.105, blue: 0.155), Color(red: 0.18, green: 0.63, blue: 1.0)),
+        ("emerald", "Emerald", Color(red: 0.025, green: 0.080, blue: 0.065), Color(red: 0.055, green: 0.145, blue: 0.110), Color(red: 0.10, green: 0.78, blue: 0.48)),
+        ("orange", "Orange", Color(red: 0.105, green: 0.055, blue: 0.025), Color(red: 0.175, green: 0.095, blue: 0.045), Color(red: 1.0, green: 0.48, blue: 0.12)),
+        ("purple", "Purple", Color(red: 0.070, green: 0.040, blue: 0.105), Color(red: 0.125, green: 0.075, blue: 0.180), Color(red: 0.63, green: 0.43, blue: 1.0))
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L10n.text("Theme", "Thema"))
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(themes, id: \.id) { theme in
+                        Button {
+                            selection = theme.id
+                            Haptics.light()
+                        } label: {
+                            VStack(spacing: 7) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(theme.bg)
+                                        .frame(width: 72, height: 48)
+
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(theme.card)
+                                        .frame(width: 48, height: 28)
+
+                                    Circle()
+                                        .fill(theme.accent)
+                                        .frame(width: 13, height: 13)
+                                }
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(selection == theme.id ? theme.accent : Color.secondary.opacity(0.25), lineWidth: selection == theme.id ? 2.5 : 1)
+                                )
+
+                                Text(theme.name)
+                                    .font(.caption2)
+                                    .foregroundStyle(.primary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct PlateCalculatorView: View {
+    @State private var targetWeight: Double = AppPreferences.isImperial ? 225 : 100
+    @State private var barWeight: Double = AppPreferences.isImperial ? 45 : 20
+
+    private var plates: [Double] {
+        AppPreferences.isImperial
+            ? [45, 35, 25, 10, 5, 2.5]
+            : [25, 20, 15, 10, 5, 2.5, 1.25]
+    }
+
+    private var calculation: [(Double, Int)] {
+        var remaining = max(0, (targetWeight - barWeight) / 2)
+        var result: [(Double, Int)] = []
+
+        for plate in plates {
+            let count = Int((remaining + 0.0001) / plate)
+            if count > 0 {
+                result.append((plate, count))
+                remaining -= Double(count) * plate
+            }
+        }
+        return result
+    }
+
+    private var actualWeight: Double {
+        barWeight + calculation.reduce(0) { $0 + ($1.0 * Double($1.1) * 2) }
+    }
+
+    var body: some View {
+        Form {
+            Section(L10n.text("Target", "Doel")) {
+                HStack {
+                    Text(L10n.text("Target weight", "Doelgewicht"))
+                    Spacer()
+                    DoneNumberField(value: $targetWeight, integerOnly: false, placeholder: "0")
+                        .frame(width: 100, height: 40)
+                    Text(AppPreferences.weightLabel)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack {
+                    Text(L10n.text("Bar weight", "Stanggewicht"))
+                    Spacer()
+                    DoneNumberField(value: $barWeight, integerOnly: false, placeholder: "0")
+                        .frame(width: 100, height: 40)
+                    Text(AppPreferences.weightLabel)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section(L10n.text("Load each side", "Belading per kant")) {
+                if targetWeight <= barWeight {
+                    Text(L10n.text("No plates required.", "Geen schijven nodig."))
+                        .foregroundStyle(.secondary)
+                } else if calculation.isEmpty {
+                    Text(L10n.text("Target cannot be matched with the standard plate set.", "Doel kan niet met de standaard schijven worden gemaakt."))
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(calculation.enumerated()), id: \.offset) { _, item in
+                        HStack {
+                            Image(systemName: "circle.fill")
+                                .foregroundStyle(RFTheme.accent)
+                            Text("\(item.0.formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)")
+                            Spacer()
+                            Text("× \(item.1)")
+                                .bold()
+                        }
+                    }
+
+                    LabeledContent(
+                        L10n.text("Actual loaded weight", "Werkelijk geladen gewicht"),
+                        value: "\(actualWeight.formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)"
+                    )
+                }
+            }
+
+            Section {
+                Text(L10n.text(
+                    "The calculator assumes the same plates are loaded on both sides of the bar.",
+                    "De calculator gaat uit van dezelfde schijven aan beide kanten van de stang."
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle(L10n.text("Plate Calculator", "Schijvencalculator"))
+    }
+}
+
 struct SettingsView: View {
     @AppStorage("appLanguage") private var appLanguage = "en"
     @AppStorage("measurementSystem") private var measurementSystem = "metric"
@@ -2931,6 +3824,9 @@ struct SettingsView: View {
     @AppStorage("showPreviousSets") private var showPreviousSets = true
     @AppStorage("keepScreenAwake") private var keepScreenAwake = true
     @AppStorage("defaultSets") private var defaultSets = 3
+    @AppStorage("defaultRestSeconds") private var defaultRestSeconds = 90
+    @AppStorage("autoRestTimer") private var autoRestTimer = true
+    @AppStorage("progressionStepKg") private var progressionStepKg = 2.5
 
     var body: some View {
         NavigationStack {
@@ -2958,15 +3854,7 @@ struct SettingsView: View {
                         Text(L10n.text("Light", "Licht")).tag("light")
                     }
 
-                    Picker(L10n.text("Theme", "Thema"), selection: $themePreset) {
-                        Text("Forge Blue").tag("forge")
-                        Text("OLED").tag("oled")
-                        Text("Graphite").tag("graphite")
-                        Text("Navy").tag("navy")
-                        Text("Emerald").tag("emerald")
-                        Text("Orange").tag("orange")
-                        Text("Purple").tag("purple")
-                    }
+                    ThemeSelector(selection: $themePreset)
 
                     Picker(L10n.text("Text size", "Tekstgrootte"), selection: $textSize) {
                         Text(L10n.text("Compact", "Compact")).tag("compact")
@@ -2984,8 +3872,34 @@ struct SettingsView: View {
                     )
 
                     Toggle(L10n.text("Show previous sets", "Vorige sets tonen"), isOn: $showPreviousSets)
+                    Toggle(L10n.text("Automatic rest timer", "Automatische rusttimer"), isOn: $autoRestTimer)
+
+                    if autoRestTimer {
+                        Stepper(
+                            "\(L10n.text("Default rest", "Standaard rust")): \(defaultRestSeconds)s",
+                            value: $defaultRestSeconds,
+                            in: 15...600,
+                            step: 15
+                        )
+                    }
+
+                    Stepper(
+                        "\(L10n.text("Progression step", "Progressiestap")): \(AppPreferences.displayWeight(progressionStepKg).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)",
+                        value: $progressionStepKg,
+                        in: 0.25...20,
+                        step: 0.25
+                    )
+
                     Toggle(L10n.text("Keep screen awake during workout", "Scherm aanhouden tijdens training"), isOn: $keepScreenAwake)
                     Toggle(L10n.text("Haptic feedback", "Haptische feedback"), isOn: $hapticsEnabled)
+                }
+
+                Section(L10n.text("Tools", "Hulpmiddelen")) {
+                    NavigationLink {
+                        PlateCalculatorView()
+                    } label: {
+                        Label(L10n.text("Plate Calculator", "Schijvencalculator"), systemImage: "circle.grid.2x2.fill")
+                    }
                 }
 
                 Section(L10n.text("Storage", "Opslag")) {
