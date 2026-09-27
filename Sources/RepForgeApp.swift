@@ -422,9 +422,14 @@ final class WorkoutTemplate {
     }
 
     var plannedExercises: [ProgramExercise]? {
-        guard let planJSON,
-              let data = planJSON.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode([ProgramExercise].self, from: data)
+        get {
+            guard let planJSON,
+                  let data = planJSON.data(using: .utf8) else { return nil }
+            return try? JSONDecoder().decode([ProgramExercise].self, from: data)
+        }
+        set {
+            planJSON = Self.encodePlan(newValue)
+        }
     }
 
     private static func encodePlan(_ plan: [ProgramExercise]?) -> String? {
@@ -860,6 +865,7 @@ struct StartWorkoutView: View {
     @StateObject private var programStore = ProgramPlanStore()
     @State private var showTemplateEditor = false
     @State private var templateSeed: ProgramDay?
+    @State private var editingTemplate: WorkoutTemplate?
     @State private var editingProgramDay: ProgramDay?
     @State private var activeSession: WorkoutSession?
     @State private var selectedProgramWeek = 1
@@ -903,12 +909,19 @@ struct StartWorkoutView: View {
                     } else {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 165), spacing: 14)], spacing: 14) {
                             ForEach(templates) { template in
-                                TemplateCard(template: template) {
-                                    activeSession = createSession(template: template)
-                                } onDelete: {
-                                    context.delete(template)
-                                    try? context.save()
-                                }
+                                TemplateCard(
+                                    template: template,
+                                    onStart: {
+                                        activeSession = createSession(template: template)
+                                    },
+                                    onEdit: {
+                                        editingTemplate = template
+                                    },
+                                    onDelete: {
+                                        context.delete(template)
+                                        try? context.save()
+                                    }
+                                )
                             }
                         }
                     }
@@ -969,6 +982,9 @@ struct StartWorkoutView: View {
                 templateSeed = nil
             }) { day in
                 TemplateEditorView(prefill: day)
+            }
+            .sheet(item: $editingTemplate) { template in
+                TemplateEditorView(template: template)
             }
             .sheet(item: $editingProgramDay) { day in
                 ProgramDayEditorView(day: day) { updated in
@@ -1246,6 +1262,7 @@ struct ProgramExerciseEditorRow: View {
 struct TemplateCard: View {
     let template: WorkoutTemplate
     let onStart: () -> Void
+    let onEdit: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -1255,6 +1272,9 @@ struct TemplateCard: View {
                     .foregroundStyle(RFTheme.accent)
                 Spacer()
                 Menu {
+                    Button(action: onEdit) {
+                        Label("Edit Template", systemImage: "pencil")
+                    }
                     Button(role: .destructive, action: onDelete) {
                         Label("Delete", systemImage: "trash")
                     }
@@ -1275,10 +1295,17 @@ struct TemplateCard: View {
                 .foregroundStyle(RFTheme.muted)
                 .lineLimit(4)
 
-            Button("Start", action: onStart)
-                .buttonStyle(.borderedProminent)
-                .tint(RFTheme.accent)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                Button("Start", action: onStart)
+                    .buttonStyle(.borderedProminent)
+                    .tint(RFTheme.accent)
+
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Edit template")
+            }
         }
         .padding()
         .frame(minHeight: 180, alignment: .topLeading)
@@ -1291,20 +1318,31 @@ struct TemplateCard: View {
 struct TemplateEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
+    private let template: WorkoutTemplate?
+
     @State private var name: String
     @State private var items: [ProgramExercise]
     @State private var showPicker = false
     @State private var pickerIDs: [String] = []
 
-    init(prefill: ProgramDay? = nil) {
-        let defaultName: String
-        if let prefill {
-            defaultName = "\(prefill.day) — \(prefill.focus)"
+    init(prefill: ProgramDay? = nil, template: WorkoutTemplate? = nil) {
+        self.template = template
+
+        if let template {
+            _name = State(initialValue: template.name)
+            let existing = template.plannedExercises ??
+                template.exerciseIDs.compactMap { id in
+                    guard let exercise = ExerciseCatalog.find(id) else { return nil }
+                    return ProgramExercise(exercise.name, 3, "8–12")
+                }
+            _items = State(initialValue: existing)
+        } else if let prefill {
+            _name = State(initialValue: "\(prefill.day) — \(prefill.focus)")
+            _items = State(initialValue: prefill.exercises)
         } else {
-            defaultName = "New Template"
+            _name = State(initialValue: "New Template")
+            _items = State(initialValue: [])
         }
-        _name = State(initialValue: defaultName)
-        _items = State(initialValue: prefill?.exercises ?? [])
     }
 
     var body: some View {
@@ -1336,24 +1374,14 @@ struct TemplateEditorView: View {
             .environment(\.editMode, .constant(.active))
             .scrollContentBackground(.hidden)
             .background(RFTheme.bg)
-            .navigationTitle("New Template")
+            .navigationTitle(template == nil ? "New Template" : "Edit Template")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let ids = items.compactMap { ExerciseCatalog.findByName($0.name)?.id }
-                        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                        context.insert(
-                            WorkoutTemplate(
-                                name: cleanName.isEmpty ? "Workout" : cleanName,
-                                exerciseIDs: ids,
-                                plan: items
-                            )
-                        )
-                        try? context.save()
-                        dismiss()
+                        saveTemplate()
                     }
                     .bold()
                     .disabled(items.isEmpty)
@@ -1363,6 +1391,29 @@ struct TemplateEditorView: View {
                 ExercisePickerView(selectedIDs: $pickerIDs)
             }
         }
+    }
+
+    private func saveTemplate() {
+        let ids = items.compactMap { ExerciseCatalog.findByName($0.name)?.id }
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalName = cleanName.isEmpty ? "Workout" : cleanName
+
+        if let template {
+            template.name = finalName
+            template.exerciseIDs = ids
+            template.plannedExercises = items
+        } else {
+            context.insert(
+                WorkoutTemplate(
+                    name: finalName,
+                    exerciseIDs: ids,
+                    plan: items
+                )
+            )
+        }
+
+        try? context.save()
+        dismiss()
     }
 
     private func addPickedExercises() {
@@ -1570,6 +1621,7 @@ struct WorkoutExerciseBlock: View {
     private var exercise: ExerciseDefinition? { ExerciseCatalog.find(log.exerciseID) }
     private var previous: [(Double, Int)] { Metrics.previousSets(exerciseID: log.exerciseID, sessions: sessions) }
     private var best: Double { Metrics.personalBest(exerciseID: log.exerciseID, sessions: sessions) }
+    private var orderedSets: [WorkoutSet] { log.sets.sorted(by: { $0.order < $1.order }) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1611,33 +1663,75 @@ struct WorkoutExerciseBlock: View {
             HStack {
                 Text("Set").frame(width: 42, alignment: .leading)
                 Text("Previous").frame(maxWidth: .infinity)
-                Text("kg").frame(width: 82)
-                Text("Reps").frame(width: 66)
-                Image(systemName: "checkmark").frame(width: 34)
+                Text("kg").frame(width: 72)
+                Text("Reps").frame(width: 60)
+                Image(systemName: "checkmark").frame(width: 30)
+                Image(systemName: "minus").frame(width: 30)
             }
             .font(.caption.bold())
             .foregroundStyle(.secondary)
 
-            ForEach(log.sets.sorted(by: { $0.order < $1.order })) { set in
+            ForEach(orderedSets) { set in
                 WorkoutSetRow(
                     set: set,
-                    previous: previous.indices.contains(set.order) ? previous[set.order] : nil
+                    previous: previous.indices.contains(set.order) ? previous[set.order] : nil,
+                    canDelete: log.sets.count > 1,
+                    onDelete: {
+                        removeSet(set)
+                    }
                 )
             }
 
-            Button {
-                let next = (log.sets.map(\.order).max() ?? -1) + 1
-                log.sets.append(WorkoutSet(order: next))
-                try? context.save()
-            } label: {
-                Label("Add Set", systemImage: "plus")
-                    .frame(maxWidth: .infinity)
+            HStack(spacing: 10) {
+                Button {
+                    removeLastSet()
+                } label: {
+                    Label("Remove Set", systemImage: "minus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+                .disabled(log.sets.count <= 1)
+
+                Button {
+                    addSet()
+                } label: {
+                    Label("Add Set", systemImage: "plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(RFTheme.accent)
             }
-            .buttonStyle(.bordered)
         }
         .padding()
         .background(RFTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 20))
+    }
+
+    private func addSet() {
+        let next = (log.sets.map(\.order).max() ?? -1) + 1
+        log.sets.append(WorkoutSet(order: next))
+        try? context.save()
+    }
+
+    private func removeLastSet() {
+        guard log.sets.count > 1,
+              let last = orderedSets.last else { return }
+        removeSet(last)
+    }
+
+    private func removeSet(_ set: WorkoutSet) {
+        guard log.sets.count > 1 else { return }
+        log.sets.removeAll { $0.id == set.id }
+        context.delete(set)
+        renumberSets()
+        try? context.save()
+    }
+
+    private func renumberSets() {
+        for (index, set) in log.sets.sorted(by: { $0.order < $1.order }).enumerated() {
+            set.order = index
+        }
     }
 }
 
@@ -1645,9 +1739,11 @@ struct WorkoutSetRow: View {
     @Environment(\.modelContext) private var context
     @Bindable var set: WorkoutSet
     let previous: (Double, Int)?
+    let canDelete: Bool
+    let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             Text("\(set.order + 1)")
                 .font(.headline)
                 .frame(width: 42, height: 42)
@@ -1662,14 +1758,14 @@ struct WorkoutSetRow: View {
             TextField("0", value: $set.weightKg, format: .number.precision(.fractionLength(0...2)))
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.center)
-                .frame(width: 82, height: 42)
+                .frame(width: 72, height: 42)
                 .background(RFTheme.field)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
             TextField("0", value: $set.reps, format: .number)
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.center)
-                .frame(width: 66, height: 42)
+                .frame(width: 60, height: 42)
                 .background(RFTheme.field)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
@@ -1679,13 +1775,23 @@ struct WorkoutSetRow: View {
                 try? context.save()
             } label: {
                 Image(systemName: set.completed ? "checkmark.circle.fill" : "circle")
-                    .font(.title2)
+                    .font(.title3)
                     .foregroundStyle(set.completed ? RFTheme.success : RFTheme.muted)
             }
-            .frame(width: 34)
+            .frame(width: 30)
+
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "minus.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(canDelete ? Color.red.opacity(0.9) : RFTheme.muted.opacity(0.35))
+            }
+            .frame(width: 30)
+            .disabled(!canDelete)
+            .accessibilityLabel("Remove set \(set.order + 1)")
         }
     }
 }
+
 
 // MARK: - History
 
