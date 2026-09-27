@@ -190,6 +190,7 @@ Seated Calf Raise Machine|Calves|Machine|raise
 Lean-Away Cable Lateral Raise|Shoulders|Cable|raise
 EZ-Bar Biceps Curl|Biceps|EZ-Bar|curl
 Kneeling Cable Crunch|Core|Cable|core
+Abdominal Crunch Machine|Core|Machine|core
 EZ-Bar Reverse Curl|Forearms|EZ-Bar|curl
 Arnold Dumbbell Press|Shoulders|Dumbbell|press
 Flat Dumbbell Bench Press|Chest|Dumbbell|press
@@ -719,6 +720,7 @@ enum ExerciseMediaService {
         "EZ-Bar Biceps Curl": "2407",
         "EZ-Bar Curl": "2407",
         "Kneeling Cable Crunch": "0175",
+        "Abdominal Crunch Machine": "1452",
         "Triceps Pushdown": "1723",
         "Arnold Dumbbell Press": "2137",
         "Close-Grip Barbell Bench Press": "0030",
