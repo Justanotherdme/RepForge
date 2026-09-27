@@ -234,6 +234,8 @@ enum GymProfileStore {
         guard !gyms.isEmpty,
               let data = try? JSONEncoder().encode(gyms) else { return }
         UserDefaults.standard.set(data, forKey: key)
+        let revision = UserDefaults.standard.integer(forKey: "gymRevision")
+        UserDefaults.standard.set(revision + 1, forKey: "gymRevision")
     }
 
     static func profile(id: String?) -> GymProfile {
@@ -1669,6 +1671,7 @@ struct RootView: View {
 struct GymQuickPicker: View {
     @Binding var activeGymID: String
     @State private var refresh = UUID()
+    @AppStorage("gymRevision") private var gymRevision = 0
 
     var body: some View {
         Menu {
@@ -1693,7 +1696,7 @@ struct GymQuickPicker: View {
             .font(.caption.bold())
             .lineLimit(1)
         }
-        .id(refresh)
+        .id("\(refresh)-\(gymRevision)")
         .buttonStyle(.bordered)
     }
 }
@@ -3396,7 +3399,12 @@ struct WorkoutSummaryView: View {
         return session.exercises.compactMap { log in
             let current = log.sets.filter(\.countsForPR).map(\.weightKg).max() ?? 0
             guard current > 0 else { return nil }
-            let previous = Metrics.personalBest(exerciseID: log.exerciseID, sessions: previousSessions)
+            let previous = Metrics.personalBest(
+                exerciseID: log.exerciseID,
+                sessions: previousSessions,
+                gymID: GymProfileStore.sessionGymID(session),
+                startDate: AppPreferences.prStartDate
+            )
             guard current > previous else { return nil }
             let name = ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise"
             return (name, current, previous)
@@ -3443,6 +3451,11 @@ struct WorkoutSummaryView: View {
                         StatCard(title: L10n.text("Completed sets", "Voltooide sets"), value: "\(completedSets.count)", icon: "checkmark.circle.fill")
                         StatCard(title: L10n.text("PRs", "PR's"), value: "\(prs.count)", icon: "trophy.fill")
                     }
+
+                    MuscleHeatMapView(
+                        entries: MuscleAnalytics.sessionVolume(session),
+                        title: L10n.text("Muscles trained", "Getrainde spieren")
+                    )
 
                     if !prs.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
@@ -4238,6 +4251,276 @@ struct LoopingExerciseVideo: View {
     }
 }
 
+struct FlowMuscleTags: View {
+    let contributions: [MuscleContribution]
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 105), spacing: 8)], spacing: 8) {
+            ForEach(contributions.sorted(by: { $0.weight > $1.weight })) { contribution in
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(contribution.weight >= 0.8 ? RFTheme.accent : RFTheme.accent.opacity(0.45))
+                        .frame(width: 7, height: 7)
+                    Text(contribution.muscle)
+                        .font(.caption)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 7)
+                .background(RFTheme.raised)
+                .clipShape(Capsule())
+            }
+        }
+    }
+}
+
+struct MuscleVolumeDashboard: View {
+    let entries: [MuscleVolumeEntry]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(L10n.text("Weekly muscle volume", "Wekelijks spiervolume"))
+                    .font(.title3.bold())
+                Spacer()
+                Text(L10n.text("effective sets", "effectieve sets"))
+                    .font(.caption)
+                    .foregroundStyle(RFTheme.muted)
+            }
+
+            if entries.isEmpty {
+                Text(L10n.text(
+                    "Complete working sets this week to build the dashboard.",
+                    "Voltooi deze week werksets om het dashboard op te bouwen."
+                ))
+                .font(.caption)
+                .foregroundStyle(RFTheme.muted)
+            } else {
+                Chart(Array(entries.prefix(10))) { entry in
+                    BarMark(
+                        x: .value("Sets", entry.sets),
+                        y: .value("Muscle", entry.muscle)
+                    )
+                    .foregroundStyle(RFTheme.accent)
+                    .cornerRadius(4)
+                    .annotation(position: .trailing) {
+                        Text(entry.sets.formatted(.number.precision(.fractionLength(0...1))))
+                            .font(.caption2.bold())
+                            .foregroundStyle(RFTheme.muted)
+                    }
+                }
+                .frame(height: CGFloat(max(190, min(360, entries.prefix(10).count * 31))))
+                .chartXAxis {
+                    AxisMarks(position: .bottom)
+                }
+            }
+
+            Text(L10n.text(
+                "Primary muscles count as 1 set; meaningful secondary involvement counts fractionally.",
+                "Primaire spieren tellen als 1 set; relevante secundaire belasting telt gedeeltelijk mee."
+            ))
+            .font(.caption2)
+            .foregroundStyle(RFTheme.muted)
+        }
+        .padding()
+        .background(RFTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+struct MuscleRecoveryDashboard: View {
+    let entries: [MuscleRecoveryEntry]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(L10n.text("Muscle recovery", "Spierherstel"))
+                    .font(.title3.bold())
+                Spacer()
+                Image(systemName: "waveform.path.ecg")
+                    .foregroundStyle(RFTheme.accent)
+            }
+
+            if entries.isEmpty {
+                Text(L10n.text(
+                    "Recovery estimates appear after completed workouts.",
+                    "Herstelschattingen verschijnen na voltooide trainingen."
+                ))
+                .font(.caption)
+                .foregroundStyle(RFTheme.muted)
+            } else {
+                ForEach(Array(entries.prefix(10))) { entry in
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack {
+                            Text(entry.muscle)
+                                .font(.subheadline.bold())
+                            Spacer()
+                            Text("\(Int(entry.recovery * 100))% • \(entry.status)")
+                                .font(.caption.bold())
+                                .foregroundStyle(recoveryColor(entry.recovery))
+                        }
+
+                        ProgressView(value: entry.recovery)
+                            .tint(recoveryColor(entry.recovery))
+
+                        if let last = entry.lastTrained {
+                            Text(
+                                "\(L10n.text("Last trained", "Laatst getraind")) \(last.formatted(.relative(presentation: .named))) • \(entry.recentSets.formatted(.number.precision(.fractionLength(0...1)))) \(L10n.text("recent sets", "recente sets"))"
+                            )
+                            .font(.caption2)
+                            .foregroundStyle(RFTheme.muted)
+                        }
+                    }
+                }
+            }
+
+            Text(L10n.text(
+                "Recovery is a training-load estimate based on recent sets and time since training, not a medical measurement.",
+                "Herstel is een trainingsbelastingsschatting op basis van recente sets en tijd sinds training, geen medische meting."
+            ))
+            .font(.caption2)
+            .foregroundStyle(RFTheme.muted)
+        }
+        .padding()
+        .background(RFTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+    }
+
+    private func recoveryColor(_ recovery: Double) -> Color {
+        if recovery >= 0.85 { return RFTheme.success }
+        if recovery >= 0.55 { return RFTheme.accent }
+        return .orange
+    }
+}
+
+struct MuscleHeatMapView: View {
+    let entries: [MuscleVolumeEntry]
+    let title: String
+
+    private var intensity: [String: Double] {
+        let maxValue = max(entries.map(\.sets).max() ?? 1, 1)
+        return Dictionary(uniqueKeysWithValues: entries.map {
+            ($0.muscle, min(1, $0.sets / maxValue))
+        })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.title3.bold())
+
+            if entries.isEmpty {
+                Text(L10n.text("No muscle data yet.", "Nog geen spierdata."))
+                    .foregroundStyle(RFTheme.muted)
+            } else {
+                HStack(spacing: 16) {
+                    BodyMuscleFigure(side: .front, intensity: intensity)
+                    BodyMuscleFigure(side: .back, intensity: intensity)
+                }
+                .frame(height: 235)
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 115), spacing: 8)], spacing: 8) {
+                    ForEach(Array(entries.prefix(8))) { entry in
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(heatColor(intensity[entry.muscle] ?? 0))
+                                .frame(width: 8, height: 8)
+                            Text(entry.muscle)
+                                .font(.caption2)
+                                .lineLimit(1)
+                            Spacer()
+                            Text(entry.sets.formatted(.number.precision(.fractionLength(0...1))))
+                                .font(.caption2.bold())
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(RFTheme.raised)
+                        .clipShape(Capsule())
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(RFTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+    }
+
+    private func heatColor(_ value: Double) -> Color {
+        RFTheme.accent.opacity(0.20 + (0.80 * value))
+    }
+}
+
+struct BodyMuscleFigure: View {
+    let side: MuscleContribution.BodySide
+    let intensity: [String: Double]
+
+    private var zones: [(String, CGFloat, CGFloat)] {
+        if side == .front {
+            return [
+                ("Front Delts", 0.27, 0.22),
+                ("Side Delts", 0.74, 0.22),
+                ("Upper Chest", 0.50, 0.25),
+                ("Mid Chest", 0.50, 0.32),
+                ("Lower Chest", 0.50, 0.38),
+                ("Biceps", 0.26, 0.39),
+                ("Forearms", 0.20, 0.52),
+                ("Abs", 0.50, 0.48),
+                ("Obliques", 0.66, 0.48),
+                ("Hip Flexors", 0.50, 0.59),
+                ("Adductors", 0.50, 0.69),
+                ("Quadriceps", 0.37, 0.73)
+            ]
+        }
+
+        return [
+            ("Traps", 0.50, 0.20),
+            ("Rear Delts", 0.74, 0.24),
+            ("Upper Back", 0.50, 0.30),
+            ("Lats", 0.65, 0.39),
+            ("Triceps", 0.77, 0.40),
+            ("Spinal Erectors", 0.50, 0.48),
+            ("Glutes", 0.50, 0.60),
+            ("Hamstrings", 0.38, 0.73),
+            ("Calves", 0.38, 0.88)
+        ]
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(RFTheme.raised.opacity(0.55))
+
+                Image(systemName: "figure.stand")
+                    .font(.system(size: min(proxy.size.width * 0.82, 150), weight: .ultraLight))
+                    .foregroundStyle(RFTheme.muted.opacity(0.22))
+
+                ForEach(zones, id: \.0) { zone in
+                    if let value = intensity[zone.0], value > 0 {
+                        Circle()
+                            .fill(RFTheme.accent.opacity(0.25 + value * 0.75))
+                            .frame(width: 18 + value * 10, height: 18 + value * 10)
+                            .overlay(Circle().stroke(Color.white.opacity(0.45), lineWidth: 1))
+                            .position(
+                                x: proxy.size.width * zone.1,
+                                y: proxy.size.height * zone.2
+                            )
+                    }
+                }
+
+                VStack {
+                    Text(side == .front ? L10n.text("Front", "Voor") : L10n.text("Back", "Achter"))
+                        .font(.caption.bold())
+                        .foregroundStyle(RFTheme.muted)
+                    Spacer()
+                }
+                .padding(.top, 8)
+            }
+        }
+    }
+}
+
 // MARK: - Profile
 
 struct ProfileView: View {
@@ -4245,9 +4528,31 @@ struct ProfileView: View {
     @Query private var profiles: [UserProfile]
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var sessions: [WorkoutSession]
     @State private var editing = false
+    @AppStorage("activeGymID") private var activeGymID = GymProfileStore.defaultID
+    @AppStorage("gymRevision") private var gymRevision = 0
+    @AppStorage("separateRecordsByGym") private var separateRecordsByGym = true
 
     private var profile: UserProfile? { profiles.first }
     private var completed: [WorkoutSession] { sessions.filter { $0.endedAt != nil } }
+
+    private var analyticsSessions: [WorkoutSession] {
+        guard separateRecordsByGym else { return completed }
+        return completed.filter { GymProfileStore.sessionGymID($0) == activeGymID }
+    }
+
+    private var weeklyMuscleVolume: [MuscleVolumeEntry] {
+        MuscleAnalytics.weeklyVolume(
+            sessions: sessions,
+            gymID: separateRecordsByGym ? activeGymID : nil
+        )
+    }
+
+    private var recoveryData: [MuscleRecoveryEntry] {
+        MuscleAnalytics.recovery(
+            sessions: sessions,
+            gymID: separateRecordsByGym ? activeGymID : nil
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -4263,6 +4568,16 @@ struct ProfileView: View {
 
                         Text(profile.displayName).font(.title.bold())
                         Text(profile.bio).foregroundStyle(RFTheme.muted)
+
+                        Label(
+                            separateRecordsByGym
+                                ? GymProfileStore.profile(id: activeGymID).name
+                                : L10n.text("All gyms", "Alle gyms"),
+                            systemImage: "mappin.and.ellipse"
+                        )
+                        .font(.caption.bold())
+                        .foregroundStyle(RFTheme.accent)
+                        .id(gymRevision)
 
                         HStack {
                             StatCard(title: L10n.text("Workouts", "Trainingen"), value: "\(completed.count)", icon: "dumbbell.fill")
@@ -4295,6 +4610,17 @@ struct ProfileView: View {
                         .background(RFTheme.surface)
                         .clipShape(RoundedRectangle(cornerRadius: 20))
 
+                        MuscleVolumeDashboard(entries: weeklyMuscleVolume)
+
+                        MuscleRecoveryDashboard(entries: recoveryData)
+
+                        if !weeklyMuscleVolume.isEmpty {
+                            MuscleHeatMapView(
+                                entries: weeklyMuscleVolume,
+                                title: L10n.text("This week's muscle map", "Spierkaart van deze week")
+                            )
+                        }
+
                         Button {
                             editing = true
                         } label: {
@@ -4319,24 +4645,24 @@ struct ProfileView: View {
     private var workoutsThisWeek: Int {
         let calendar = Calendar.current
         guard let start = calendar.dateInterval(of: .weekOfYear, for: .now)?.start else { return 0 }
-        return completed.filter { $0.startedAt >= start }.count
+        return analyticsSessions.filter { $0.startedAt >= start }.count
     }
 
     private var totalCompletedSets: Int {
-        completed.reduce(0) { partial, session in
+        analyticsSessions.reduce(0) { partial, session in
             partial + session.exercises.flatMap(\.sets).filter(\.completed).count
         }
     }
 
     private var averageDuration: String {
-        guard !completed.isEmpty else { return "00:00" }
-        let average = completed.reduce(0.0) { $0 + $1.duration } / Double(completed.count)
+        guard !analyticsSessions.isEmpty else { return "00:00" }
+        let average = analyticsSessions.reduce(0.0) { $0 + $1.duration } / Double(analyticsSessions.count)
         return durationString(average)
     }
 
     private var currentStreak: Int {
         let calendar = Calendar.current
-        let weeks = Set(completed.compactMap {
+        let weeks = Set(analyticsSessions.compactMap {
             calendar.dateInterval(of: .weekOfYear, for: $0.startedAt)?.start
         })
 
@@ -4566,6 +4892,142 @@ struct PlateCalculatorView: View {
     }
 }
 
+struct GymManagerView: View {
+    @Binding var activeGymID: String
+    @State private var gyms = GymProfileStore.load()
+    @State private var editingGym: GymProfile?
+    @State private var showAdd = false
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(gyms) { gym in
+                    Button {
+                        activeGymID = gym.id
+                        Haptics.light()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: gym.id == activeGymID ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(gym.id == activeGymID ? RFTheme.accent : RFTheme.muted)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(gym.name)
+                                    .foregroundStyle(.primary)
+                                    .font(.headline)
+                                if !gym.note.isEmpty {
+                                    Text(gym.note)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
+                            Spacer()
+
+                            Button {
+                                editingGym = gym
+                            } label: {
+                                Image(systemName: "pencil")
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .swipeActions {
+                        if gym.id != GymProfileStore.defaultID {
+                            Button(role: .destructive) {
+                                GymProfileStore.delete(id: gym.id)
+                                gyms = GymProfileStore.load()
+                                if activeGymID == gym.id {
+                                    activeGymID = GymProfileStore.defaultID
+                                }
+                            } label: {
+                                Label(L10n.text("Delete", "Verwijder"), systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+            } footer: {
+                Text(L10n.text(
+                    "The gym attached to a workout determines which previous weights and PRs are shown when gym-specific records are enabled.",
+                    "De gym van een training bepaalt welke vorige gewichten en PR's worden getoond wanneer records per gym zijn ingeschakeld."
+                ))
+            }
+        }
+        .navigationTitle(L10n.text("Gym Profiles", "Gymprofielen"))
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showAdd = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+        .sheet(item: $editingGym, onDismiss: reload) { gym in
+            GymEditView(gym: gym) { updated in
+                GymProfileStore.update(updated)
+                reload()
+            }
+        }
+        .sheet(isPresented: $showAdd, onDismiss: reload) {
+            GymEditView(
+                gym: GymProfile(id: "", name: "", note: ""),
+                isNew: true
+            ) { newGym in
+                let created = GymProfileStore.add(name: newGym.name, note: newGym.note)
+                activeGymID = created.id
+                reload()
+            }
+        }
+    }
+
+    private func reload() {
+        gyms = GymProfileStore.load()
+    }
+}
+
+struct GymEditView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var gym: GymProfile
+    let isNew: Bool
+    let onSave: (GymProfile) -> Void
+
+    init(gym: GymProfile, isNew: Bool = false, onSave: @escaping (GymProfile) -> Void) {
+        _gym = State(initialValue: gym)
+        self.isNew = isNew
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(L10n.text("Gym", "Gym")) {
+                    TextField(L10n.text("Gym name", "Naam gym"), text: $gym.name)
+                    TextField(
+                        L10n.text("Optional note / equipment", "Optionele notitie / apparatuur"),
+                        text: $gym.note,
+                        axis: .vertical
+                    )
+                    .lineLimit(2...5)
+                }
+            }
+            .navigationTitle(isNew ? L10n.text("New Gym", "Nieuwe gym") : L10n.text("Edit Gym", "Gym bewerken"))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.text("Cancel", "Annuleren")) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.text("Save", "Opslaan")) {
+                        onSave(gym)
+                        dismiss()
+                    }
+                    .bold()
+                    .disabled(gym.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+}
+
 struct SettingsView: View {
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var exportSessions: [WorkoutSession]
     @Query(sort: \WorkoutTemplate.createdAt, order: .reverse) private var exportTemplates: [WorkoutTemplate]
@@ -4582,6 +5044,11 @@ struct SettingsView: View {
     @AppStorage("defaultRestSeconds") private var defaultRestSeconds = 90
     @AppStorage("autoRestTimer") private var autoRestTimer = true
     @AppStorage("progressionStepKg") private var progressionStepKg = 2.5
+    @AppStorage("activeGymID") private var activeGymID = GymProfileStore.defaultID
+    @AppStorage("separateRecordsByGym") private var separateRecordsByGym = true
+    @AppStorage("prScope") private var prScope = "lifetime"
+    @AppStorage("seasonStartDate") private var seasonStartDate = 0.0
+    @AppStorage("gymRevision") private var gymRevision = 0
 
     private var workoutCSV: String {
         var rows = ["date,workout,exercise,set,type,weight_kg,reps,rpe,rir,note"]
@@ -4656,6 +5123,56 @@ struct SettingsView: View {
                         Text(L10n.text("Large", "Groot")).tag("large")
                         Text(L10n.text("Extra large", "Extra groot")).tag("xlarge")
                     }
+                }
+
+                Section(L10n.text("Gym & records", "Gym & records")) {
+                    NavigationLink {
+                        GymManagerView(activeGymID: $activeGymID)
+                    } label: {
+                        HStack {
+                            Label(L10n.text("Gym profiles", "Gymprofielen"), systemImage: "building.2.fill")
+                            Spacer()
+                            Text(GymProfileStore.profile(id: activeGymID).name)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .id(gymRevision)
+                    }
+
+                    Toggle(
+                        L10n.text("Separate records by gym", "Records per gym scheiden"),
+                        isOn: $separateRecordsByGym
+                    )
+
+                    Picker(L10n.text("Personal-record period", "Periode persoonlijke records"), selection: $prScope) {
+                        Text(L10n.text("Lifetime", "Altijd")).tag("lifetime")
+                        Text(L10n.text("This year", "Dit jaar")).tag("year")
+                        Text(L10n.text("Current season", "Huidig seizoen")).tag("season")
+                    }
+
+                    if prScope == "season" {
+                        DatePicker(
+                            L10n.text("Season starts", "Seizoen start"),
+                            selection: Binding(
+                                get: {
+                                    seasonStartDate > 0
+                                        ? Date(timeIntervalSince1970: seasonStartDate)
+                                        : AppPreferences.seasonStartDate
+                                },
+                                set: { seasonStartDate = $0.timeIntervalSince1970 }
+                            ),
+                            in: ...Date.now,
+                            displayedComponents: .date
+                        )
+                    }
+
+                    Text(L10n.text(
+                        "Previous weights and personal records can be kept separate for each gym. Existing workouts are assigned to Main Gym.",
+                        "Vorige gewichten en persoonlijke records kunnen per gym worden bijgehouden. Bestaande trainingen worden aan Hoofdgym toegewezen."
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
 
                 Section(L10n.text("Workout", "Training")) {
