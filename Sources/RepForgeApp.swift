@@ -3959,8 +3959,25 @@ struct WorkoutExerciseBlock: View {
 
     @State private var showRemoveExerciseConfirm = false
     @State private var showOptions = false
+    @State private var isCollapsed = false
+    @AppStorage("autoCollapseCompleted") private var autoCollapseCompleted = true
 
     private var exercise: ExerciseDefinition? { ExerciseCatalog.find(log.exerciseID) }
+    private var isCardio: Bool { exercise?.movement == "cardio" }
+    private var orderedSets: [WorkoutSet] { log.sets.sorted(by: { $0.order < $1.order }) }
+    private var completedCount: Int { log.sets.filter(\.completed).count }
+    private var allCompleted: Bool { !log.sets.isEmpty && completedCount == log.sets.count }
+
+    private var previousLog: ExerciseLog? {
+        Metrics.scopedSessions(sessions, gymID: gymID)
+            .filter { session in
+                session.exercises.contains(where: { $0.exerciseID == log.exerciseID })
+            }
+            .max(by: { ($0.endedAt ?? $0.startedAt) < ($1.endedAt ?? $1.startedAt) })?
+            .exercises
+            .first(where: { $0.exerciseID == log.exerciseID })
+    }
+
     private var previous: [(Double, Int)] {
         Metrics.previousSets(
             exerciseID: log.exerciseID,
@@ -3977,143 +3994,79 @@ struct WorkoutExerciseBlock: View {
             startDate: AppPreferences.prStartDate
         )
     }
-    private var orderedSets: [WorkoutSet] { log.sets.sorted(by: { $0.order < $1.order }) }
+
+    private var canCopyPrevious: Bool {
+        isCardio ? !(previousLog?.sets.isEmpty ?? true) : !previous.isEmpty
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let ex = exercise {
-                HStack(alignment: .top) {
-                    NavigationLink {
-                        ExerciseDetailView(exercise: ex)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(ex.name)
-                                .font(.title3.bold())
-                                .foregroundStyle(RFTheme.accent)
+        VStack(alignment: .leading, spacing: 0) {
+            exerciseHeader
 
-                            HStack(spacing: 8) {
-                                Text(best > 0
-                                     ? "Best: \(AppPreferences.displayWeight(best).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)"
-                                     : L10n.text("No previous best", "Nog geen persoonlijk record"))
-
-                                if let target = log.targetReps {
-                                    Text("\(L10n.text("Target", "Doel")) \(target)")
-                                        .foregroundStyle(RFTheme.accent)
-                                }
-                            }
+            if isCollapsed {
+                collapsedSummary
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 14)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let note = log.coachingNote, !note.isEmpty {
+                        Label(note, systemImage: "quote.bubble")
                             .font(.caption)
                             .foregroundStyle(RFTheme.muted)
-
-                            if let note = log.coachingNote {
-                                Text(note)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            if let sessionNote = log.sessionNote, !sessionNote.isEmpty {
-                                Label(sessionNote, systemImage: "note.text")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            if let group = log.supersetGroup {
-                                Label("Superset \(group)", systemImage: "link")
-                                    .font(.caption.bold())
-                                    .foregroundStyle(RFTheme.accent)
-                            }
-                        }
+                            .padding(.horizontal, 4)
                     }
 
-                    Spacer()
+                    if let sessionNote = log.sessionNote, !sessionNote.isEmpty {
+                        Label(sessionNote, systemImage: "note.text")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                    }
 
-                    Menu {
-                        NavigationLink {
-                            ExerciseDetailView(exercise: ex)
-                        } label: {
-                            Label(L10n.text("Exercise Guide", "Oefening uitleg"), systemImage: "info.circle")
-                        }
+                    if isCardio {
+                        cardioContent
+                    } else {
+                        strengthContent
+                    }
 
-                        Button {
-                            copyPreviousSets()
-                        } label: {
-                            Label(L10n.text("Copy Previous Sets", "Vorige sets kopiëren"), systemImage: "doc.on.doc")
-                        }
-                        .disabled(previous.isEmpty)
-
-                        Button(action: onMoveUp) {
-                            Label(L10n.text("Move Up", "Omhoog"), systemImage: "arrow.up")
-                        }
-
-                        Button(action: onMoveDown) {
-                            Label(L10n.text("Move Down", "Omlaag"), systemImage: "arrow.down")
-                        }
-
-                        Button(action: onDuplicate) {
-                            Label(L10n.text("Duplicate Exercise", "Oefening dupliceren"), systemImage: "plus.square.on.square")
-                        }
-
-                        Button {
-                            showOptions = true
-                        } label: {
-                            Label(L10n.text("Exercise Options", "Oefening opties"), systemImage: "slider.horizontal.3")
-                        }
-
-                        Divider()
-
-                        Button(role: .destructive) {
-                            showRemoveExerciseConfirm = true
-                        } label: {
-                            Label(L10n.text("Remove Exercise", "Oefening verwijderen"), systemImage: "trash")
-                        }
+                    Button {
+                        addSet()
                     } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.headline)
-                            .foregroundStyle(RFTheme.accent)
-                            .frame(width: 40, height: 40)
-                            .background(RFTheme.raised)
-                            .clipShape(RoundedRectangle(cornerRadius: 11))
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                            Text(isCardio
+                                 ? L10n.text("Add Interval", "Interval toevoegen")
+                                 : L10n.text("Add Set", "Set toevoegen"))
+                                .font(.subheadline.bold())
+                            Spacer()
+                        }
+                        .padding(.vertical, 5)
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(RFTheme.accent)
                 }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
-
-            HStack {
-                Text(L10n.text("Set", "Set")).frame(width: 42, alignment: .leading)
-                if AppPreferences.showPreviousSets {
-                    Text(L10n.text("Previous", "Vorige")).frame(maxWidth: .infinity)
-                }
-                Text(AppPreferences.weightLabel).frame(width: 76)
-                Text(L10n.text("Reps", "Reps")).frame(width: 64)
-                Image(systemName: "checkmark").frame(width: 34)
-            }
-            .font(.caption.bold())
-            .foregroundStyle(.secondary)
-
-            ForEach(orderedSets) { set in
-                WorkoutSetRow(
-                    set: set,
-                    previous: previous.indices.contains(set.order) ? previous[set.order] : nil,
-                    canDelete: log.sets.count > 1,
-                    onCompleted: { completed in
-                        if completed { onSetCompleted() }
-                    },
-                    onDelete: {
-                        removeSet(set)
-                    }
-                )
-            }
-
-            Button {
-                addSet()
-            } label: {
-                Label(L10n.text("Add Set", "Set toevoegen"), systemImage: "plus")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(RFTheme.accent)
         }
-        .padding()
-        .background(RFTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .background(
+            LinearGradient(
+                colors: [
+                    RFTheme.surface,
+                    allCompleted ? RFTheme.success.opacity(0.055) : RFTheme.raised.opacity(0.38)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(allCompleted ? RFTheme.success.opacity(0.32) : RFTheme.cardBorder)
+        )
+        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
         .sheet(isPresented: $showOptions) {
             ExerciseLogOptionsView(log: log)
         }
@@ -4128,25 +4081,354 @@ struct WorkoutExerciseBlock: View {
             Button(L10n.text("Cancel", "Annuleren"), role: .cancel) {}
         } message: {
             Text(L10n.text(
-                "This removes the exercise and its sets from the current workout only.",
-                "Dit verwijdert de oefening en de sets alleen uit deze training."
+                "This removes the exercise and all of its entries from the current workout.",
+                "Dit verwijdert de oefening en alle invoer uit de huidige training."
             ))
+        }
+        .onAppear {
+            if autoCollapseCompleted && allCompleted {
+                isCollapsed = true
+            }
+        }
+        .onChange(of: completedCount) { _, _ in
+            if autoCollapseCompleted && allCompleted {
+                withAnimation(.snappy) {
+                    isCollapsed = true
+                }
+            }
         }
     }
 
-    private func copyPreviousSets() {
-        guard !previous.isEmpty else { return }
+    private var exerciseHeader: some View {
+        HStack(spacing: 12) {
+            Button {
+                withAnimation(.snappy) {
+                    isCollapsed.toggle()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(RFTheme.accent.opacity(0.12))
+                        Image(systemName: exerciseIcon)
+                            .font(.title3.bold())
+                            .foregroundStyle(RFTheme.accent)
+                    }
+                    .frame(width: 46, height: 46)
 
-        while log.sets.count < previous.count {
-            log.sets.append(WorkoutSet(order: log.sets.count))
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 7) {
+                            Text(exercise?.name ?? "Exercise")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+
+                            if let group = log.supersetGroup, !group.isEmpty {
+                                Text("SS \(group)")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(RFTheme.accent)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(RFTheme.accent.opacity(0.12))
+                                    .clipShape(Capsule())
+                            }
+                        }
+
+                        HStack(spacing: 7) {
+                            Text("\(completedCount)/\(log.sets.count) \(isCardio ? L10n.text("intervals", "intervallen") : L10n.text("sets", "sets"))")
+                                .foregroundStyle(allCompleted ? RFTheme.success : RFTheme.muted)
+
+                            if isCardio {
+                                if let summary = cardioSummary, !summary.isEmpty {
+                                    Text("• \(summary)")
+                                        .foregroundStyle(RFTheme.muted)
+                                }
+                            } else if best > 0 {
+                                Text("• \(L10n.text("Best", "Beste")) \(AppPreferences.displayWeight(best).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)")
+                                    .foregroundStyle(RFTheme.muted)
+                            }
+                        }
+                        .font(.caption)
+                        .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    ZStack {
+                        Circle()
+                            .stroke(RFTheme.field, lineWidth: 4)
+                        Circle()
+                            .trim(
+                                from: 0,
+                                to: log.sets.isEmpty ? 0 : Double(completedCount) / Double(log.sets.count)
+                            )
+                            .stroke(
+                                allCompleted ? RFTheme.success : RFTheme.accent,
+                                style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                            )
+                            .rotationEffect(.degrees(-90))
+
+                        if allCompleted {
+                            Image(systemName: "checkmark")
+                                .font(.caption.bold())
+                                .foregroundStyle(RFTheme.success)
+                        } else {
+                            Text("\(completedCount)")
+                                .font(.caption2.bold())
+                                .foregroundStyle(RFTheme.muted)
+                        }
+                    }
+                    .frame(width: 34, height: 34)
+
+                    Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
+                        .font(.caption.bold())
+                        .foregroundStyle(RFTheme.muted)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Menu {
+                if let ex = exercise {
+                    NavigationLink {
+                        ExerciseDetailView(exercise: ex)
+                    } label: {
+                        Label(L10n.text("Exercise Guide", "Oefening uitleg"), systemImage: "info.circle")
+                    }
+                }
+
+                Button {
+                    copyPreviousEntries()
+                } label: {
+                    Label(
+                        isCardio
+                            ? L10n.text("Copy Previous Cardio", "Vorige cardio kopiëren")
+                            : L10n.text("Copy Previous Sets", "Vorige sets kopiëren"),
+                        systemImage: "doc.on.doc"
+                    )
+                }
+                .disabled(!canCopyPrevious)
+
+                Button {
+                    withAnimation(.snappy) {
+                        isCollapsed.toggle()
+                    }
+                } label: {
+                    Label(
+                        isCollapsed
+                            ? L10n.text("Expand", "Uitklappen")
+                            : L10n.text("Collapse", "Inklappen"),
+                        systemImage: isCollapsed ? "chevron.down" : "chevron.up"
+                    )
+                }
+
+                Button(action: onMoveUp) {
+                    Label(L10n.text("Move Up", "Omhoog"), systemImage: "arrow.up")
+                }
+
+                Button(action: onMoveDown) {
+                    Label(L10n.text("Move Down", "Omlaag"), systemImage: "arrow.down")
+                }
+
+                Button(action: onDuplicate) {
+                    Label(L10n.text("Duplicate Exercise", "Oefening dupliceren"), systemImage: "plus.square.on.square")
+                }
+
+                Button {
+                    showOptions = true
+                } label: {
+                    Label(L10n.text("Exercise Options", "Oefening opties"), systemImage: "slider.horizontal.3")
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    showRemoveExerciseConfirm = true
+                } label: {
+                    Label(L10n.text("Remove Exercise", "Oefening verwijderen"), systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.headline)
+                    .foregroundStyle(RFTheme.muted)
+                    .frame(width: 36, height: 36)
+                    .background(RFTheme.field)
+                    .clipShape(Circle())
+            }
+        }
+        .padding(14)
+    }
+
+    private var strengthContent: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text(L10n.text("SET", "SET"))
+                    .frame(width: 42, alignment: .leading)
+
+                if AppPreferences.showPreviousSets {
+                    Text(L10n.text("PREVIOUS", "VORIGE"))
+                        .frame(maxWidth: .infinity)
+                }
+
+                Text(AppPreferences.weightLabel.uppercased())
+                    .frame(width: 76)
+
+                Text(L10n.text("REPS", "REPS"))
+                    .frame(width: 64)
+
+                Image(systemName: "checkmark")
+                    .frame(width: 34)
+            }
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(RFTheme.muted)
+
+            ForEach(orderedSets) { set in
+                WorkoutSetRow(
+                    set: set,
+                    previous: previous.indices.contains(set.order) ? previous[set.order] : nil,
+                    canDelete: log.sets.count > 1,
+                    onCompleted: { completed in
+                        if completed { onSetCompleted() }
+                    },
+                    onDelete: {
+                        removeSet(set)
+                    }
+                )
+            }
+        }
+    }
+
+    private var cardioContent: some View {
+        VStack(spacing: 10) {
+            HStack {
+                Label(
+                    L10n.text(
+                        "Cardio uses time, distance and intensity — not kg/reps.",
+                        "Cardio gebruikt tijd, afstand en intensiteit — geen kg/reps."
+                    ),
+                    systemImage: "waveform.path.ecg"
+                )
+                .font(.caption)
+                .foregroundStyle(RFTheme.muted)
+                Spacer()
+            }
+            .padding(.horizontal, 2)
+
+            ForEach(orderedSets) { set in
+                CardioIntervalRow(
+                    set: set,
+                    canDelete: log.sets.count > 1,
+                    onCompleted: { completed in
+                        if completed { onSetCompleted() }
+                    },
+                    onDelete: {
+                        removeSet(set)
+                    }
+                )
+            }
+        }
+    }
+
+    private var collapsedSummary: some View {
+        HStack(spacing: 10) {
+            Image(systemName: allCompleted ? "checkmark.seal.fill" : "rectangle.compress.vertical")
+                .foregroundStyle(allCompleted ? RFTheme.success : RFTheme.accent)
+
+            Text(
+                isCardio
+                    ? (cardioSummary ?? L10n.text("Cardio ready to log", "Cardio klaar om te loggen"))
+                    : strengthCollapsedSummary
+            )
+            .font(.caption.bold())
+            .foregroundStyle(RFTheme.muted)
+            .lineLimit(1)
+
+            Spacer()
+
+            Text(allCompleted ? L10n.text("Complete", "Voltooid") : "\(completedCount)/\(log.sets.count)")
+                .font(.caption.bold())
+                .foregroundStyle(allCompleted ? RFTheme.success : RFTheme.accent)
+        }
+        .padding(11)
+        .background(RFTheme.field.opacity(0.65))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var strengthCollapsedSummary: String {
+        guard let last = orderedSets.last(where: { $0.completed }) else {
+            return L10n.text("Tap to expand sets", "Tik om sets uit te klappen")
         }
 
-        for (index, values) in previous.enumerated() {
-            guard log.sets.indices.contains(index) else { continue }
-            log.sets[index].weightKg = values.0
-            log.sets[index].reps = values.1
-            log.sets[index].completed = false
-            log.sets[index].completedAt = nil
+        return "\(AppPreferences.displayWeight(last.weightKg).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel) × \(last.reps)"
+    }
+
+    private var cardioSummary: String? {
+        let completed = orderedSets.filter(\.completed)
+        let source = completed.isEmpty ? orderedSets : completed
+        let totalSeconds = source.reduce(0.0) { $0 + ($1.durationSeconds ?? 0) }
+        let distanceKm = source.reduce(0.0) { $0 + ($1.distanceKm ?? 0) }
+
+        var parts: [String] = []
+        if totalSeconds > 0 {
+            parts.append(cardioDurationText(totalSeconds))
+        }
+        if distanceKm > 0 {
+            parts.append(
+                "\(AppPreferences.displayDistance(distanceKm).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.distanceLabel)"
+            )
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " • ")
+    }
+
+    private var exerciseIcon: String {
+        guard let exercise else { return "dumbbell.fill" }
+        switch exercise.movement {
+        case "cardio": return "figure.run"
+        case "press": return "arrow.up.forward.circle.fill"
+        case "pull": return "arrow.down.backward.circle.fill"
+        case "squat": return "figure.strengthtraining.traditional"
+        case "hinge": return "figure.flexibility"
+        case "core": return "figure.core.training"
+        case "curl": return "dumbbell.fill"
+        default: return "dumbbell.fill"
+        }
+    }
+
+    private func copyPreviousEntries() {
+        if isCardio {
+            guard let previousLog else { return }
+            let previousSets = previousLog.sets.sorted(by: { $0.order < $1.order })
+
+            while log.sets.count < previousSets.count {
+                log.sets.append(WorkoutSet(order: log.sets.count))
+            }
+
+            for (index, old) in previousSets.enumerated() {
+                guard log.sets.indices.contains(index) else { continue }
+                let set = log.sets[index]
+                set.durationSeconds = old.durationSeconds
+                set.distanceKm = old.distanceKm
+                set.inclinePercent = old.inclinePercent
+                set.calories = old.calories
+                set.averageHeartRate = old.averageHeartRate
+                set.rpe = old.rpe
+                set.completed = false
+                set.completedAt = nil
+            }
+        } else {
+            guard !previous.isEmpty else { return }
+
+            while log.sets.count < previous.count {
+                log.sets.append(WorkoutSet(order: log.sets.count))
+            }
+
+            for (index, values) in previous.enumerated() {
+                guard log.sets.indices.contains(index) else { continue }
+                log.sets[index].weightKg = values.0
+                log.sets[index].reps = values.1
+                log.sets[index].completed = false
+                log.sets[index].completedAt = nil
+            }
         }
 
         Haptics.light()
@@ -4172,6 +4454,311 @@ struct WorkoutExerciseBlock: View {
         for (index, set) in log.sets.sorted(by: { $0.order < $1.order }).enumerated() {
             set.order = index
         }
+    }
+}
+
+private func cardioDurationText(_ seconds: Double) -> String {
+    let total = max(0, Int(seconds.rounded()))
+    let hours = total / 3600
+    let minutes = (total % 3600) / 60
+    let secs = total % 60
+
+    if hours > 0 {
+        return String(format: "%d:%02d:%02d", hours, minutes, secs)
+    }
+    return String(format: "%d:%02d", minutes, secs)
+}
+
+struct CardioIntervalRow: View {
+    @Environment(\.modelContext) private var context
+    @Bindable var set: WorkoutSet
+    let canDelete: Bool
+    let onCompleted: (Bool) -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        SwipeDeleteContainer(canDelete: canDelete, onDelete: onDelete) {
+            VStack(spacing: 10) {
+                HStack {
+                    HStack(spacing: 8) {
+                        ZStack {
+                            Circle()
+                                .fill(set.completed ? RFTheme.success.opacity(0.16) : RFTheme.accent.opacity(0.12))
+                            Text("\(set.order + 1)")
+                                .font(.caption.bold())
+                                .foregroundStyle(set.completed ? RFTheme.success : RFTheme.accent)
+                        }
+                        .frame(width: 30, height: 30)
+
+                        Text(L10n.text("Interval", "Interval"))
+                            .font(.subheadline.bold())
+                    }
+
+                    Spacer()
+
+                    if let pace = paceText {
+                        Label(pace, systemImage: "speedometer")
+                            .font(.caption.bold())
+                            .foregroundStyle(RFTheme.muted)
+                    }
+
+                    Button {
+                        set.completed.toggle()
+                        set.completedAt = set.completed ? .now : nil
+                        if set.completed { Haptics.success() } else { Haptics.light() }
+                        try? context.save()
+                        onCompleted(set.completed)
+                    } label: {
+                        Image(systemName: set.completed ? "checkmark.circle.fill" : "circle")
+                            .font(.title2)
+                            .foregroundStyle(set.completed ? RFTheme.success : RFTheme.muted)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    CardioMetricInput(
+                        title: L10n.text("TIME", "TIJD"),
+                        unit: "min",
+                        icon: "clock",
+                        value: Binding(
+                            get: { (set.durationSeconds ?? 0) / 60.0 },
+                            set: { set.durationSeconds = $0 > 0 ? $0 * 60.0 : nil }
+                        )
+                    )
+
+                    CardioMetricInput(
+                        title: L10n.text("DISTANCE", "AFSTAND"),
+                        unit: AppPreferences.distanceLabel,
+                        icon: "point.topleft.down.to.point.bottomright.curvepath",
+                        value: Binding(
+                            get: { AppPreferences.displayDistance(set.distanceKm ?? 0) },
+                            set: {
+                                let km = AppPreferences.storedDistanceKm($0)
+                                set.distanceKm = km > 0 ? km : nil
+                            }
+                        )
+                    )
+
+                    CardioMetricInput(
+                        title: L10n.text("INCLINE", "HELLING"),
+                        unit: "%",
+                        icon: "mountain.2",
+                        value: Binding(
+                            get: { set.inclinePercent ?? 0 },
+                            set: { set.inclinePercent = $0 > 0 ? $0 : nil }
+                        )
+                    )
+                }
+
+                HStack(spacing: 8) {
+                    CardioMetricInput(
+                        title: L10n.text("CALORIES", "CALORIEËN"),
+                        unit: "kcal",
+                        icon: "flame.fill",
+                        integerOnly: true,
+                        value: Binding(
+                            get: { set.calories ?? 0 },
+                            set: { set.calories = $0 > 0 ? $0 : nil }
+                        )
+                    )
+
+                    CardioMetricInput(
+                        title: L10n.text("AVG HR", "GEM. HF"),
+                        unit: "bpm",
+                        icon: "heart.fill",
+                        integerOnly: true,
+                        value: Binding(
+                            get: { Double(set.averageHeartRate ?? 0) },
+                            set: {
+                                let bpm = Int($0.rounded())
+                                set.averageHeartRate = bpm > 0 ? bpm : nil
+                            }
+                        )
+                    )
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(L10n.text("SPEED", "SNELHEID"), systemImage: "gauge.with.dots.needle.50percent")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(RFTheme.muted)
+                            .lineLimit(1)
+
+                        Text(speedText)
+                            .font(.subheadline.bold())
+                            .lineLimit(1)
+
+                        Text(AppPreferences.speedLabel)
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(RFTheme.muted)
+                    }
+                    .padding(9)
+                    .frame(maxWidth: .infinity, minHeight: 66, alignment: .leading)
+                    .background(RFTheme.field)
+                    .clipShape(RoundedRectangle(cornerRadius: 11))
+                }
+            }
+            .padding(11)
+            .background(set.completed ? RFTheme.success.opacity(0.055) : RFTheme.raised.opacity(0.52))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(set.completed ? RFTheme.success.opacity(0.26) : RFTheme.cardBorder)
+            )
+        }
+    }
+
+    private var speedText: String {
+        guard let duration = set.durationSeconds,
+              let distance = set.distanceKm,
+              duration > 0,
+              distance > 0 else { return "—" }
+
+        let displayedDistance = AppPreferences.displayDistance(distance)
+        let hours = duration / 3600.0
+        return (displayedDistance / hours)
+            .formatted(.number.precision(.fractionLength(0...1)))
+    }
+
+    private var paceText: String? {
+        guard let duration = set.durationSeconds,
+              let distance = set.distanceKm,
+              duration > 0,
+              distance > 0 else { return nil }
+
+        let displayedDistance = AppPreferences.displayDistance(distance)
+        guard displayedDistance > 0 else { return nil }
+
+        let secondsPerUnit = duration / displayedDistance
+        let minutes = Int(secondsPerUnit) / 60
+        let seconds = Int(secondsPerUnit) % 60
+        return "\(minutes):\(String(format: "%02d", seconds))/\(AppPreferences.distanceLabel)"
+    }
+}
+
+struct CardioMetricInput: View {
+    let title: String
+    let unit: String
+    let icon: String
+    var integerOnly: Bool = false
+    @Binding var value: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(RFTheme.muted)
+                .lineLimit(1)
+
+            DoneNumberField(
+                value: $value,
+                integerOnly: integerOnly,
+                placeholder: "0"
+            )
+            .font(.subheadline.bold())
+            .frame(height: 24)
+
+            Text(unit)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(RFTheme.muted)
+        }
+        .padding(9)
+        .frame(maxWidth: .infinity, minHeight: 66, alignment: .leading)
+        .background(RFTheme.field)
+        .clipShape(RoundedRectangle(cornerRadius: 11))
+    }
+}
+
+struct SwipeDeleteContainer<Content: View>: View {
+    let canDelete: Bool
+    let onDelete: () -> Void
+    let content: Content
+
+    @State private var dragOffset: CGFloat = 0
+    @State private var restingOffset: CGFloat = 0
+    @State private var dragAxis: SwipeAxis?
+
+    private enum SwipeAxis {
+        case horizontal
+        case vertical
+    }
+
+    private let deleteWidth: CGFloat = 82
+
+    init(
+        canDelete: Bool,
+        onDelete: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.canDelete = canDelete
+        self.onDelete = onDelete
+        self.content = content()
+    }
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            if canDelete {
+                Button(role: .destructive) {
+                    Haptics.light()
+                    onDelete()
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: "trash.fill")
+                        Text(L10n.text("Delete", "Verwijder"))
+                            .font(.caption2.bold())
+                    }
+                    .foregroundStyle(.white)
+                    .frame(width: deleteWidth)
+                    .frame(maxHeight: .infinity)
+                    .background(Color.red)
+                }
+            }
+
+            content
+                .offset(x: dragOffset)
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 14)
+                        .onChanged { value in
+                            guard canDelete else { return }
+                            let horizontal = value.translation.width
+                            let vertical = value.translation.height
+
+                            if dragAxis == nil,
+                               max(abs(horizontal), abs(vertical)) > 10 {
+                                dragAxis = abs(horizontal) > abs(vertical) * 1.20 ? .horizontal : .vertical
+                            }
+
+                            guard dragAxis == .horizontal else { return }
+                            dragOffset = min(0, max(-deleteWidth * 1.5, restingOffset + horizontal))
+                        }
+                        .onEnded { _ in
+                            defer { dragAxis = nil }
+                            guard canDelete, dragAxis == .horizontal else { return }
+
+                            if dragOffset < -(deleteWidth * 1.15) {
+                                withAnimation(.easeOut(duration: 0.16)) {
+                                    dragOffset = -420
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                                    Haptics.light()
+                                    onDelete()
+                                    dragOffset = 0
+                                    restingOffset = 0
+                                }
+                            } else if dragOffset < -(deleteWidth * 0.36) {
+                                withAnimation(.snappy) {
+                                    dragOffset = -deleteWidth
+                                    restingOffset = -deleteWidth
+                                }
+                            } else {
+                                withAnimation(.snappy) {
+                                    dragOffset = 0
+                                    restingOffset = 0
+                                }
+                            }
+                        }
+                )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }
 
