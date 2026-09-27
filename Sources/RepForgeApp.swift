@@ -4,6 +4,7 @@ import Charts
 import AVKit
 import UIKit
 import UniformTypeIdentifiers
+import ActivityKit
 
 // MARK: - Theme
 
@@ -47,6 +48,16 @@ enum AppPreferences {
     static var autoRestTimer: Bool {
         if UserDefaults.standard.object(forKey: "autoRestTimer") == nil { return true }
         return UserDefaults.standard.bool(forKey: "autoRestTimer")
+    }
+
+    static var autoCollapseCompleted: Bool {
+        if UserDefaults.standard.object(forKey: "autoCollapseCompleted") == nil { return true }
+        return UserDefaults.standard.bool(forKey: "autoCollapseCompleted")
+    }
+
+    static var liveActivityRestTimer: Bool {
+        if UserDefaults.standard.object(forKey: "liveActivityRestTimer") == nil { return true }
+        return UserDefaults.standard.bool(forKey: "liveActivityRestTimer")
     }
 
     static var progressionStepKg: Double {
@@ -108,6 +119,16 @@ enum AppPreferences {
     static func storedHeightCm(_ displayed: Double) -> Double {
         isImperial ? displayed * 2.54 : displayed
     }
+
+    static func displayDistance(_ km: Double) -> Double {
+        isImperial ? km * 0.6213711922 : km
+    }
+
+    static func storedDistanceKm(_ displayed: Double) -> Double {
+        isImperial ? displayed / 0.6213711922 : displayed
+    }
+
+    static var speedLabel: String { isImperial ? "mph" : "km/h" }
 }
 
 enum L10n {
@@ -196,6 +217,18 @@ enum RFTheme {
         if systemMode { return Color.secondary }
         return explicitLight ? Color.black.opacity(0.50) : Color.white.opacity(0.52)
     }
+
+    static var cardBorder: Color {
+        explicitLight ? Color.black.opacity(0.08) : Color.white.opacity(0.10)
+    }
+
+    static var heroGradient: LinearGradient {
+        LinearGradient(
+            colors: [surface, raised.opacity(0.90), accent.opacity(explicitLight ? 0.10 : 0.16)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
 }
 
 enum Haptics {
@@ -207,6 +240,72 @@ enum Haptics {
     static func success() {
         guard AppPreferences.hapticsEnabled else { return }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+}
+
+@MainActor
+final class RestActivityController {
+    static let shared = RestActivityController()
+
+    private var activity: Activity<RestTimerAttributes>?
+
+    func start(workoutTitle: String, exerciseName: String, seconds: Int) {
+        guard AppPreferences.liveActivityRestTimer,
+              seconds > 0,
+              ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+
+        Task {
+            await end()
+
+            let attributes = RestTimerAttributes(workoutTitle: workoutTitle)
+            let state = RestTimerAttributes.ContentState(
+                endDate: Date().addingTimeInterval(TimeInterval(seconds)),
+                totalSeconds: seconds,
+                exerciseName: exerciseName
+            )
+
+            do {
+                activity = try Activity.request(
+                    attributes: attributes,
+                    content: ActivityContent(state: state, staleDate: state.endDate),
+                    pushType: nil
+                )
+            } catch {
+                activity = nil
+            }
+        }
+    }
+
+    func update(exerciseName: String, remaining: Int) {
+        guard AppPreferences.liveActivityRestTimer,
+              let activity,
+              remaining > 0 else { return }
+
+        let state = RestTimerAttributes.ContentState(
+            endDate: Date().addingTimeInterval(TimeInterval(remaining)),
+            totalSeconds: remaining,
+            exerciseName: exerciseName
+        )
+
+        Task {
+            await activity.update(
+                ActivityContent(state: state, staleDate: state.endDate)
+            )
+        }
+    }
+
+    func end() async {
+        guard let activity else { return }
+        let finalState = RestTimerAttributes.ContentState(
+            endDate: .now,
+            totalSeconds: 0,
+            exerciseName: ""
+        )
+        await activity.end(
+            ActivityContent(state: finalState, staleDate: .now),
+            dismissalPolicy: .immediate
+        )
+        self.activity = nil
     }
 }
 
@@ -1103,6 +1202,11 @@ struct BackupSet: Codable {
     var rpe: Double?
     var rir: Int?
     var note: String?
+    var durationSeconds: Double?
+    var distanceKm: Double?
+    var inclinePercent: Double?
+    var calories: Double?
+    var averageHeartRate: Int?
 }
 
 struct BackupProfile: Codable {
@@ -1126,6 +1230,8 @@ struct BackupSettings: Codable {
     var defaultSets: Int
     var defaultRestSeconds: Int
     var autoRestTimer: Bool
+    var autoCollapseCompleted: Bool
+    var liveActivityRestTimer: Bool
     var progressionStepKg: Double
     var activeGymID: String
     var separateRecordsByGym: Bool
@@ -1400,6 +1506,14 @@ final class WorkoutSession {
     var totalVolume: Double {
         exercises.flatMap(\.sets).filter(\.completed).reduce(0) { $0 + ($1.weightKg * Double($1.reps)) }
     }
+
+    var totalCardioDistanceKm: Double {
+        exercises.flatMap(\.sets).filter(\.completed).reduce(0) { $0 + ($1.distanceKm ?? 0) }
+    }
+
+    var totalCardioDurationSeconds: Double {
+        exercises.flatMap(\.sets).filter(\.completed).reduce(0) { $0 + ($1.durationSeconds ?? 0) }
+    }
 }
 
 @Model
@@ -1449,6 +1563,11 @@ final class WorkoutSet {
     var rpe: Double?
     var rir: Int?
     var note: String?
+    var durationSeconds: Double?
+    var distanceKm: Double?
+    var inclinePercent: Double?
+    var calories: Double?
+    var averageHeartRate: Int?
 
     init(
         order: Int,
@@ -1458,7 +1577,12 @@ final class WorkoutSet {
         setTypeRaw: String? = nil,
         rpe: Double? = nil,
         rir: Int? = nil,
-        note: String? = nil
+        note: String? = nil,
+        durationSeconds: Double? = nil,
+        distanceKm: Double? = nil,
+        inclinePercent: Double? = nil,
+        calories: Double? = nil,
+        averageHeartRate: Int? = nil
     ) {
         self.id = UUID()
         self.order = order
@@ -1469,6 +1593,11 @@ final class WorkoutSet {
         self.rpe = rpe
         self.rir = rir
         self.note = note
+        self.durationSeconds = durationSeconds
+        self.distanceKm = distanceKm
+        self.inclinePercent = inclinePercent
+        self.calories = calories
+        self.averageHeartRate = averageHeartRate
     }
 
     var setType: String {
