@@ -3244,6 +3244,7 @@ struct ActiveWorkoutView: View {
     @State private var showSummary = false
     @State private var restRemaining = 0
     @State private var restOriginal = 0
+    @State private var restCollapsed = false
     @State private var showWorkoutNote = false
 
     @AppStorage("keepScreenAwake") private var keepScreenAwake = true
@@ -3357,19 +3358,40 @@ struct ActiveWorkoutView: View {
             }
             .safeAreaInset(edge: .bottom) {
                 if restRemaining > 0 {
-                    RestTimerBanner(
-                        remaining: restRemaining,
-                        original: max(restOriginal, 1),
-                        onAdd30: {
-                            restRemaining += 30
-                            restOriginal = max(restOriginal, restRemaining)
-                            Haptics.light()
-                        },
-                        onSkip: {
-                            restRemaining = 0
-                            Haptics.light()
+                    Group {
+                        if restCollapsed {
+                            RestTimerCompactChip(
+                                remaining: restRemaining,
+                                onExpand: { restCollapsed = false },
+                                onAdd30: {
+                                    restRemaining += 30
+                                    restOriginal = max(restOriginal, restRemaining)
+                                    Haptics.light()
+                                },
+                                onSkip: {
+                                    restRemaining = 0
+                                    Haptics.light()
+                                }
+                            )
+                        } else {
+                            RestTimerBanner(
+                                remaining: restRemaining,
+                                original: max(restOriginal, 1),
+                                onAdd30: {
+                                    restRemaining += 30
+                                    restOriginal = max(restOriginal, restRemaining)
+                                    Haptics.light()
+                                },
+                                onMinimize: {
+                                    restCollapsed = true
+                                },
+                                onSkip: {
+                                    restRemaining = 0
+                                    Haptics.light()
+                                }
+                            )
                         }
-                    )
+                    }
                     .padding(.horizontal)
                     .padding(.bottom, 4)
                 }
@@ -3435,6 +3457,7 @@ struct ActiveWorkoutView: View {
         guard seconds > 0 else { return }
         restRemaining = seconds
         restOriginal = seconds
+        restCollapsed = false
     }
 
     private func addPickedExercises() {
@@ -3513,10 +3536,11 @@ struct RestTimerBanner: View {
     let remaining: Int
     let original: Int
     let onAdd30: () -> Void
+    let onMinimize: () -> Void
     let onSkip: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             ZStack {
                 Circle()
                     .stroke(RFTheme.raised, lineWidth: 5)
@@ -3527,12 +3551,12 @@ struct RestTimerBanner: View {
                 Text(durationString(TimeInterval(remaining)))
                     .font(.caption.bold())
             }
-            .frame(width: 58, height: 58)
+            .frame(width: 54, height: 54)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(L10n.text("Rest timer", "Rusttimer"))
                     .font(.headline)
-                Text(L10n.text("Recover, then hit the next set.", "Herstel en begin daarna aan je volgende set."))
+                Text(L10n.text("Keep browsing or logging while the timer runs.", "Blijf bladeren of loggen terwijl de timer loopt."))
                     .font(.caption)
                     .foregroundStyle(RFTheme.muted)
                     .lineLimit(1)
@@ -3543,17 +3567,58 @@ struct RestTimerBanner: View {
             Button("+30", action: onAdd30)
                 .buttonStyle(.bordered)
 
+            Button(action: onMinimize) {
+                Image(systemName: "chevron.down")
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel(L10n.text("Minimize timer", "Timer minimaliseren"))
+
             Button(L10n.text("Skip", "Stop"), action: onSkip)
                 .buttonStyle(.borderedProminent)
                 .tint(RFTheme.accent)
         }
-        .padding(12)
+        .padding(10)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 18))
-        .shadow(radius: 8)
     }
 }
 
+struct RestTimerCompactChip: View {
+    let remaining: Int
+    let onExpand: () -> Void
+    let onAdd30: () -> Void
+    let onSkip: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onExpand) {
+                HStack(spacing: 7) {
+                    Image(systemName: "timer")
+                    Text(durationString(TimeInterval(remaining)))
+                        .font(.headline.monospacedDigit())
+                    Image(systemName: "chevron.up")
+                        .font(.caption)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(RFTheme.accent)
+
+            Button("+30", action: onAdd30)
+                .buttonStyle(.bordered)
+
+            Button(action: onSkip) {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel(L10n.text("Skip rest", "Rust overslaan"))
+
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+    }
+}
 
 struct WorkoutExerciseBlock: View {
     @Environment(\.modelContext) private var context
@@ -6503,8 +6568,10 @@ struct GymEditView: View {
 }
 
 struct SettingsView: View {
+    @Environment(\.modelContext) private var context
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var exportSessions: [WorkoutSession]
     @Query(sort: \WorkoutTemplate.createdAt, order: .reverse) private var exportTemplates: [WorkoutTemplate]
+    @Query private var exportProfiles: [UserProfile]
 
     @AppStorage("appLanguage") private var appLanguage = "en"
     @AppStorage("measurementSystem") private var measurementSystem = "metric"
@@ -6523,6 +6590,11 @@ struct SettingsView: View {
     @AppStorage("prScope") private var prScope = "lifetime"
     @AppStorage("seasonStartDate") private var seasonStartDate = 0.0
     @AppStorage("gymRevision") private var gymRevision = 0
+
+    @State private var showBackupExporter = false
+    @State private var showBackupImporter = false
+    @State private var backupDocument = RepForgeBackupDocument()
+    @State private var backupMessage: String?
 
     private var workoutCSV: String {
         var rows = ["date,workout,exercise,set,type,weight_kg,reps,rpe,rir,note"]
@@ -6698,9 +6770,24 @@ struct SettingsView: View {
                         Label(L10n.text("Export templates", "Templates exporteren"), systemImage: "doc.on.doc")
                     }
 
+                    Divider()
+
+                    Button {
+                        backupDocument = RepForgeBackupDocument(text: makeBackupText())
+                        showBackupExporter = true
+                    } label: {
+                        Label(L10n.text("Full RepForge Backup", "Volledige RepForge-back-up"), systemImage: "externaldrive.fill.badge.plus")
+                    }
+
+                    Button {
+                        showBackupImporter = true
+                    } label: {
+                        Label(L10n.text("Restore Full Backup", "Volledige back-up herstellen"), systemImage: "arrow.counterclockwise.circle.fill")
+                    }
+
                     Text(L10n.text(
-                        "Exports are plain text/CSV so you can keep an external copy before reinstalling or changing builds.",
-                        "Exports zijn platte tekst/CSV zodat je een externe kopie kunt bewaren vóór herinstalleren of wisselen van build."
+                        "Full backup includes workout history, templates, profile, custom exercises, gym profiles, planned workouts, program edits, favorites and app settings.",
+                        "De volledige back-up bevat trainingsgeschiedenis, templates, profiel, eigen oefeningen, gymprofielen, geplande trainingen, programma-aanpassingen, favorieten en app-instellingen."
                     ))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -6714,7 +6801,268 @@ struct SettingsView: View {
             .scrollContentBackground(.hidden)
             .background(RFTheme.bg)
             .navigationTitle(L10n.settings)
+            .fileExporter(
+                isPresented: $showBackupExporter,
+                document: backupDocument,
+                contentType: .json,
+                defaultFilename: "RepForge-Backup-\(Date.now.formatted(.dateTime.year().month().day()))"
+            ) { result in
+                if case .failure(let error) = result {
+                    backupMessage = error.localizedDescription
+                }
+            }
+            .fileImporter(
+                isPresented: $showBackupImporter,
+                allowedContentTypes: [.json],
+                allowsMultipleSelection: false
+            ) { result in
+                restoreBackup(result)
+            }
+            .alert(
+                L10n.text("Backup", "Back-up"),
+                isPresented: Binding(
+                    get: { backupMessage != nil },
+                    set: { if !$0 { backupMessage = nil } }
+                )
+            ) {
+                Button(L10n.done) { backupMessage = nil }
+            } message: {
+                Text(backupMessage ?? "")
+            }
         }
+    }
+
+    private func makeBackupText() -> String {
+        let templates = exportTemplates.map {
+            BackupTemplate(
+                id: $0.id,
+                name: $0.name,
+                exerciseIDs: $0.exerciseIDs,
+                plan: $0.plannedExercises,
+                createdAt: $0.createdAt
+            )
+        }
+
+        let sessions = exportSessions.map { session in
+            BackupSession(
+                id: session.id,
+                title: session.title,
+                startedAt: session.startedAt,
+                endedAt: session.endedAt,
+                note: session.note,
+                gymID: session.gymID,
+                exercises: session.exercises.map { log in
+                    BackupExerciseLog(
+                        id: log.id,
+                        exerciseID: log.exerciseID,
+                        order: log.order,
+                        targetReps: log.targetReps,
+                        coachingNote: log.coachingNote,
+                        supersetGroup: log.supersetGroup,
+                        sessionNote: log.sessionNote,
+                        restSeconds: log.restSeconds,
+                        sets: log.sets.map { set in
+                            BackupSet(
+                                id: set.id,
+                                order: set.order,
+                                weightKg: set.weightKg,
+                                reps: set.reps,
+                                completed: set.completed,
+                                completedAt: set.completedAt,
+                                setTypeRaw: set.setTypeRaw,
+                                rpe: set.rpe,
+                                rir: set.rir,
+                                note: set.note
+                            )
+                        }
+                    )
+                }
+            )
+        }
+
+        let profiles = exportProfiles.map {
+            BackupProfile(
+                id: $0.id,
+                displayName: $0.displayName,
+                bio: $0.bio,
+                bodyWeightKg: $0.bodyWeightKg,
+                heightCm: $0.heightCm,
+                createdAt: $0.createdAt
+            )
+        }
+
+        let programDays: [String: ProgramDay] = {
+            guard let data = UserDefaults.standard.data(forKey: "repforge.program.customDays.v1"),
+                  let decoded = try? JSONDecoder().decode([String: ProgramDay].self, from: data) else {
+                return [:]
+            }
+            return decoded
+        }()
+
+        let settings = BackupSettings(
+            appLanguage: appLanguage,
+            measurementSystem: measurementSystem,
+            appearance: appearance,
+            themePreset: themePreset,
+            textSize: textSize,
+            hapticsEnabled: hapticsEnabled,
+            showPreviousSets: showPreviousSets,
+            keepScreenAwake: keepScreenAwake,
+            defaultSets: defaultSets,
+            defaultRestSeconds: defaultRestSeconds,
+            autoRestTimer: autoRestTimer,
+            progressionStepKg: progressionStepKg,
+            activeGymID: activeGymID,
+            separateRecordsByGym: separateRecordsByGym,
+            prScope: prScope,
+            seasonStartDate: seasonStartDate
+        )
+
+        let payload = RepForgeBackupPayload(
+            version: 1,
+            exportedAt: .now,
+            templates: templates,
+            sessions: sessions,
+            profiles: profiles,
+            customExercises: CustomExerciseStore.load(),
+            gyms: GymProfileStore.load(),
+            scheduledWorkouts: WorkoutScheduleStore.load(),
+            programDays: programDays,
+            favorites: ExerciseShortcutStore.favorites,
+            recents: ExerciseShortcutStore.recent,
+            settings: settings
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(payload) else { return "{}" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func restoreBackup(_ result: Result<[URL], Error>) {
+        do {
+            let urls = try result.get()
+            guard let url = urls.first else { return }
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing { url.stopAccessingSecurityScopedResource() }
+            }
+
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let payload = try decoder.decode(RepForgeBackupPayload.self, from: data)
+            try restore(payload)
+            backupMessage = L10n.text(
+                "Backup restored successfully.",
+                "Back-up succesvol hersteld."
+            )
+        } catch {
+            backupMessage = L10n.text(
+                "Could not restore backup: \(error.localizedDescription)",
+                "Back-up kon niet worden hersteld: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func restore(_ payload: RepForgeBackupPayload) throws {
+        for session in exportSessions { context.delete(session) }
+        for template in exportTemplates { context.delete(template) }
+        for profile in exportProfiles { context.delete(profile) }
+
+        for dto in payload.templates {
+            let template = WorkoutTemplate(
+                name: dto.name,
+                exerciseIDs: dto.exerciseIDs,
+                plan: dto.plan
+            )
+            template.id = dto.id
+            template.createdAt = dto.createdAt
+            context.insert(template)
+        }
+
+        for dto in payload.sessions {
+            let logs = dto.exercises.map { logDTO -> ExerciseLog in
+                let sets = logDTO.sets.map { setDTO -> WorkoutSet in
+                    let set = WorkoutSet(
+                        order: setDTO.order,
+                        weightKg: setDTO.weightKg,
+                        reps: setDTO.reps,
+                        completed: setDTO.completed,
+                        setTypeRaw: setDTO.setTypeRaw,
+                        rpe: setDTO.rpe,
+                        rir: setDTO.rir,
+                        note: setDTO.note
+                    )
+                    set.id = setDTO.id
+                    set.completedAt = setDTO.completedAt
+                    return set
+                }
+
+                let log = ExerciseLog(
+                    exerciseID: logDTO.exerciseID,
+                    order: logDTO.order,
+                    targetReps: logDTO.targetReps,
+                    coachingNote: logDTO.coachingNote,
+                    supersetGroup: logDTO.supersetGroup,
+                    sessionNote: logDTO.sessionNote,
+                    restSeconds: logDTO.restSeconds,
+                    sets: sets
+                )
+                log.id = logDTO.id
+                return log
+            }
+
+            let session = WorkoutSession(
+                title: dto.title,
+                startedAt: dto.startedAt,
+                exercises: logs,
+                note: dto.note,
+                gymID: dto.gymID
+            )
+            session.id = dto.id
+            session.endedAt = dto.endedAt
+            context.insert(session)
+        }
+
+        for dto in payload.profiles {
+            let profile = UserProfile(displayName: dto.displayName)
+            profile.id = dto.id
+            profile.bio = dto.bio
+            profile.bodyWeightKg = dto.bodyWeightKg
+            profile.heightCm = dto.heightCm
+            profile.createdAt = dto.createdAt
+            context.insert(profile)
+        }
+
+        CustomExerciseStore.save(payload.customExercises)
+        GymProfileStore.save(payload.gyms)
+        WorkoutScheduleStore.restore(payload.scheduledWorkouts)
+        ExerciseShortcutStore.restore(favorites: payload.favorites, recent: payload.recents)
+
+        if let data = try? JSONEncoder().encode(payload.programDays) {
+            UserDefaults.standard.set(data, forKey: "repforge.program.customDays.v1")
+        }
+
+        appLanguage = payload.settings.appLanguage
+        measurementSystem = payload.settings.measurementSystem
+        appearance = payload.settings.appearance
+        themePreset = payload.settings.themePreset
+        textSize = payload.settings.textSize
+        hapticsEnabled = payload.settings.hapticsEnabled
+        showPreviousSets = payload.settings.showPreviousSets
+        keepScreenAwake = payload.settings.keepScreenAwake
+        defaultSets = payload.settings.defaultSets
+        defaultRestSeconds = payload.settings.defaultRestSeconds
+        autoRestTimer = payload.settings.autoRestTimer
+        progressionStepKg = payload.settings.progressionStepKg
+        activeGymID = payload.settings.activeGymID
+        separateRecordsByGym = payload.settings.separateRecordsByGym
+        prScope = payload.settings.prScope
+        seasonStartDate = payload.settings.seasonStartDate
+
+        try context.save()
     }
 }
 
