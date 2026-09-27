@@ -2043,15 +2043,6 @@ struct RootView: View {
     @AppStorage("textSize") private var textSize = "standard"
     @AppStorage("measurementSystem") private var measurementSystem = "metric"
 
-    private var upcomingScheduled: [ScheduledWorkoutRecord] {
-        _ = scheduleRevision
-        let start = Calendar.current.startOfDay(for: .now)
-        return WorkoutScheduleStore.load()
-            .filter { !$0.skipped && $0.date >= start }
-            .prefix(4)
-            .map { $0 }
-    }
-
     var body: some View {
         TabView(selection: $tab) {
             ProfileView()
@@ -2218,6 +2209,15 @@ struct StartWorkoutView: View {
     @State private var scheduleSeed: ScheduledWorkoutRecord?
     @AppStorage("activeGymID") private var activeGymID = GymProfileStore.defaultID
     @AppStorage("scheduleRevision") private var scheduleRevision = 0
+
+    private var upcomingScheduled: [ScheduledWorkoutRecord] {
+        _ = scheduleRevision
+        let start = Calendar.current.startOfDay(for: .now)
+        return WorkoutScheduleStore.load()
+            .filter { !$0.skipped && $0.date >= start }
+            .prefix(4)
+            .map { $0 }
+    }
 
     var body: some View {
         NavigationStack {
@@ -4393,46 +4393,537 @@ struct WorkoutSummaryView: View {
 struct HistoryView: View {
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var sessions: [WorkoutSession]
 
+    @State private var mode = 0
+    @State private var search = ""
+    @State private var gymFilter = "all"
+    @State private var muscleFilter = "All"
+    @State private var periodFilter = "all"
+    @State private var onlyPRs = false
+
+    @AppStorage("scheduleRevision") private var scheduleRevision = 0
+    @AppStorage("gymRevision") private var gymRevision = 0
+
     private var completed: [WorkoutSession] {
         sessions.filter { $0.endedAt != nil }
     }
 
+    private var filtered: [WorkoutSession] {
+        _ = scheduleRevision
+        _ = gymRevision
+
+        return completed.filter { session in
+            if gymFilter != "all",
+               GymProfileStore.sessionGymID(session) != gymFilter {
+                return false
+            }
+
+            if muscleFilter != "All" {
+                let matchesMuscle = session.exercises.contains { log in
+                    guard let exercise = ExerciseCatalog.find(log.exerciseID) else { return false }
+                    return exercise.muscle == muscleFilter ||
+                        exercise.detailedMuscles.contains(where: { $0.muscle == muscleFilter })
+                }
+                if !matchesMuscle { return false }
+            }
+
+            let calendar = Calendar.current
+            switch periodFilter {
+            case "7":
+                if session.startedAt < (calendar.date(byAdding: .day, value: -7, to: .now) ?? .distantPast) { return false }
+            case "30":
+                if session.startedAt < (calendar.date(byAdding: .day, value: -30, to: .now) ?? .distantPast) { return false }
+            case "year":
+                if let start = calendar.dateInterval(of: .year, for: .now)?.start,
+                   session.startedAt < start { return false }
+            default:
+                break
+            }
+
+            if onlyPRs && !sessionHasPR(session) {
+                return false
+            }
+
+            let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return true }
+
+            let haystack = [
+                session.title,
+                session.note ?? "",
+                GymProfileStore.profile(id: session.gymID).name,
+                session.startedAt.formatted(date: .long, time: .omitted)
+            ] + session.exercises.compactMap { log in
+                guard let exercise = ExerciseCatalog.find(log.exerciseID) else { return nil }
+                return "\(exercise.name) \(exercise.muscle) \(exercise.equipment)"
+            }
+
+            return haystack.contains { $0.localizedCaseInsensitiveContains(trimmed) }
+        }
+    }
+
     var body: some View {
         NavigationStack {
-            Group {
-                if completed.isEmpty {
-                    EmptyCard(icon: "clock.arrow.circlepath", title: "No workout history", text: "Finished workouts will appear here with sets, volume and duration.")
+            VStack(spacing: 0) {
+                Picker(L10n.history, selection: $mode) {
+                    Text(L10n.text("List", "Lijst")).tag(0)
+                    Text(L10n.text("Calendar", "Kalender")).tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+                if mode == 0 {
+                    filterBar
+
+                    if filtered.isEmpty {
+                        EmptyCard(
+                            icon: "line.3.horizontal.decrease.circle",
+                            title: L10n.text("No matching workouts", "Geen overeenkomende trainingen"),
+                            text: L10n.text("Change the search or filters.", "Pas de zoekopdracht of filters aan.")
+                        )
                         .padding()
-                } else {
-                    List(completed) { session in
-                        NavigationLink {
-                            SessionDetailView(session: session)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text(session.title).font(.headline)
-                                    Spacer()
-                                    Text(session.startedAt, format: .dateTime.day().month(.abbreviated))
-                                        .foregroundStyle(.secondary)
-                                }
-                                Text("\(session.exercises.count) \(L10n.text("exercises", "oefeningen")) • \(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel) \(L10n.text("volume", "volume")) • \(durationString(session.duration))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                        Spacer()
+                    } else {
+                        List(filtered) { session in
+                            NavigationLink {
+                                SessionDetailView(session: session)
+                            } label: {
+                                historyRow(session)
                             }
-                            .padding(.vertical, 6)
                         }
+                        .scrollContentBackground(.hidden)
                     }
-                    .scrollContentBackground(.hidden)
+                } else {
+                    WorkoutCalendarView(sessions: completed)
                 }
             }
             .background(RFTheme.bg)
             .navigationTitle(L10n.history)
+            .searchable(
+                text: $search,
+                prompt: L10n.text("Search workouts, exercises, gyms…", "Zoek trainingen, oefeningen, gyms…")
+            )
         }
+    }
+
+    private var filterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Menu {
+                    Button(L10n.text("All gyms", "Alle gyms")) { gymFilter = "all" }
+                    ForEach(GymProfileStore.load()) { gym in
+                        Button {
+                            gymFilter = gym.id
+                        } label: {
+                            if gymFilter == gym.id {
+                                Label(gym.name, systemImage: "checkmark")
+                            } else {
+                                Text(gym.name)
+                            }
+                        }
+                    }
+                } label: {
+                    Label(
+                        gymFilter == "all"
+                            ? L10n.text("All gyms", "Alle gyms")
+                            : GymProfileStore.profile(id: gymFilter).name,
+                        systemImage: "mappin.and.ellipse"
+                    )
+                }
+                .buttonStyle(.bordered)
+
+                Menu {
+                    Button(L10n.text("All muscles", "Alle spieren")) { muscleFilter = "All" }
+                    ForEach(ExerciseCatalog.muscles, id: \.self) { muscle in
+                        Button(muscle) { muscleFilter = muscle }
+                    }
+                    Divider()
+                    ForEach(MuscleMap.trackedMuscles, id: \.self) { muscle in
+                        Button(muscle) { muscleFilter = muscle }
+                    }
+                } label: {
+                    Label(
+                        muscleFilter == "All" ? L10n.text("Muscle", "Spier") : muscleFilter,
+                        systemImage: "figure.strengthtraining.traditional"
+                    )
+                }
+                .buttonStyle(.bordered)
+
+                Menu {
+                    Button(L10n.text("All time", "Altijd")) { periodFilter = "all" }
+                    Button(L10n.text("Last 7 days", "Laatste 7 dagen")) { periodFilter = "7" }
+                    Button(L10n.text("Last 30 days", "Laatste 30 dagen")) { periodFilter = "30" }
+                    Button(L10n.text("This year", "Dit jaar")) { periodFilter = "year" }
+                } label: {
+                    Label(periodLabel, systemImage: "calendar")
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    onlyPRs.toggle()
+                } label: {
+                    Label("PR", systemImage: onlyPRs ? "trophy.fill" : "trophy")
+                }
+                .buttonStyle(.bordered)
+                .tint(onlyPRs ? RFTheme.accent : .gray)
+
+                if gymFilter != "all" || muscleFilter != "All" || periodFilter != "all" || onlyPRs {
+                    Button {
+                        gymFilter = "all"
+                        muscleFilter = "All"
+                        periodFilter = "all"
+                        onlyPRs = false
+                    } label: {
+                        Label(L10n.text("Clear", "Wis"), systemImage: "xmark")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder
+    private func historyRow(_ session: WorkoutSession) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(session.title).font(.headline)
+                if sessionHasPR(session) {
+                    Image(systemName: "trophy.fill")
+                        .font(.caption)
+                        .foregroundStyle(RFTheme.accent)
+                }
+                Spacer()
+                Text(session.startedAt, format: .dateTime.day().month(.abbreviated))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 6) {
+                Label(GymProfileStore.profile(id: session.gymID).name, systemImage: "mappin.and.ellipse")
+                Text("•")
+                Text("\(session.exercises.count) \(L10n.text("exercises", "oefeningen"))")
+                Text("•")
+                Text("\(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel)")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            Text(durationString(session.duration))
+                .font(.caption2)
+                .foregroundStyle(RFTheme.muted)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var periodLabel: String {
+        switch periodFilter {
+        case "7": return "7d"
+        case "30": return "30d"
+        case "year": return L10n.text("Year", "Jaar")
+        default: return L10n.text("All time", "Altijd")
+        }
+    }
+
+    private func sessionHasPR(_ session: WorkoutSession) -> Bool {
+        let earlier = completed.filter { $0.startedAt < session.startedAt }
+
+        return session.exercises.contains { log in
+            let current = log.sets.filter(\.countsForPR).map(\.weightKg).max() ?? 0
+            guard current > 0 else { return false }
+
+            let previous = Metrics.personalBest(
+                exerciseID: log.exerciseID,
+                sessions: earlier,
+                gymID: GymProfileStore.sessionGymID(session)
+            )
+
+            return current > previous
+        }
+    }
+}
+
+struct WorkoutCalendarView: View {
+    let sessions: [WorkoutSession]
+
+    @State private var month = Calendar.current.date(
+        from: Calendar.current.dateComponents([.year, .month], from: .now)
+    ) ?? .now
+    @State private var selectedDate = Calendar.current.startOfDay(for: .now)
+    @State private var editingSchedule: ScheduledWorkoutRecord?
+
+    @AppStorage("scheduleRevision") private var scheduleRevision = 0
+
+    private let calendar = Calendar.current
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
+
+    private var monthDays: [Date?] {
+        guard let range = calendar.range(of: .day, in: .month, for: month),
+              let first = calendar.date(from: calendar.dateComponents([.year, .month], from: month)) else {
+            return []
+        }
+
+        let weekday = calendar.component(.weekday, from: first)
+        let prefix = (weekday - calendar.firstWeekday + 7) % 7
+        var days: [Date?] = Array(repeating: nil, count: prefix)
+
+        for day in range {
+            days.append(calendar.date(byAdding: .day, value: day - 1, to: first))
+        }
+
+        while days.count % 7 != 0 {
+            days.append(nil)
+        }
+        return days
+    }
+
+    private var planned: [ScheduledWorkoutRecord] {
+        _ = scheduleRevision
+        return WorkoutScheduleStore.load()
+    }
+
+    private var selectedSessions: [WorkoutSession] {
+        sessions.filter { calendar.isDate($0.startedAt, inSameDayAs: selectedDate) }
+    }
+
+    private var selectedPlans: [ScheduledWorkoutRecord] {
+        planned.filter { calendar.isDate($0.date, inSameDayAs: selectedDate) }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                HStack {
+                    Button {
+                        shiftMonth(-1)
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+
+                    Spacer()
+
+                    Text(month.formatted(.dateTime.month(.wide).year()))
+                        .font(.title3.bold())
+
+                    Spacer()
+
+                    Button {
+                        shiftMonth(1)
+                    } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                }
+                .padding(.horizontal)
+
+                LazyVGrid(columns: columns, spacing: 6) {
+                    ForEach(weekdaySymbols, id: \.self) { symbol in
+                        Text(symbol)
+                            .font(.caption2.bold())
+                            .foregroundStyle(RFTheme.muted)
+                            .frame(maxWidth: .infinity)
+                    }
+
+                    ForEach(Array(monthDays.enumerated()), id: \.offset) { _, date in
+                        if let date {
+                            CalendarDayCell(
+                                date: date,
+                                selected: calendar.isDate(date, inSameDayAs: selectedDate),
+                                workoutCount: sessions.filter { calendar.isDate($0.startedAt, inSameDayAs: date) }.count,
+                                plannedCount: planned.filter {
+                                    calendar.isDate($0.date, inSameDayAs: date) && !$0.skipped
+                                }.count,
+                                skippedCount: planned.filter {
+                                    calendar.isDate($0.date, inSameDayAs: date) && $0.skipped
+                                }.count
+                            ) {
+                                selectedDate = calendar.startOfDay(for: date)
+                            }
+                        } else {
+                            Color.clear.frame(height: 48)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+
+                Divider()
+                    .padding(.horizontal)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(selectedDate.formatted(date: .complete, time: .omitted))
+                        .font(.headline)
+
+                    if selectedSessions.isEmpty && selectedPlans.isEmpty {
+                        Text(L10n.text("Nothing scheduled or completed.", "Niets gepland of voltooid."))
+                            .foregroundStyle(RFTheme.muted)
+                            .padding(.vertical, 12)
+                    }
+
+                    ForEach(selectedPlans) { item in
+                        HStack(spacing: 10) {
+                            Image(systemName: item.skipped ? "forward.end.fill" : "calendar.badge.clock")
+                                .foregroundStyle(item.skipped ? .orange : RFTheme.accent)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(item.title)
+                                    .font(.subheadline.bold())
+                                    .strikethrough(item.skipped)
+                                Text(
+                                    "\(item.date.formatted(date: .omitted, time: .shortened)) • \(GymProfileStore.profile(id: item.gymID).name)"
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Menu {
+                                Button {
+                                    editingSchedule = item
+                                } label: {
+                                    Label(L10n.text("Reschedule", "Verplaatsen"), systemImage: "calendar")
+                                }
+                                Button {
+                                    WorkoutScheduleStore.toggleSkipped(id: item.id)
+                                } label: {
+                                    Label(
+                                        item.skipped
+                                            ? L10n.text("Unskip", "Niet overslaan")
+                                            : L10n.text("Skip", "Overslaan"),
+                                        systemImage: "forward.end"
+                                    )
+                                }
+                                Button(role: .destructive) {
+                                    WorkoutScheduleStore.remove(id: item.id)
+                                } label: {
+                                    Label(L10n.text("Delete", "Verwijder"), systemImage: "trash")
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .frame(width: 32, height: 32)
+                            }
+                        }
+                        .padding(12)
+                        .background(RFTheme.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+
+                    ForEach(selectedSessions) { session in
+                        NavigationLink {
+                            SessionDetailView(session: session)
+                        } label: {
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(RFTheme.success)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(session.title)
+                                        .font(.subheadline.bold())
+                                        .foregroundStyle(.primary)
+                                    Text(
+                                        "\(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel) • \(durationString(session.duration))"
+                                    )
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(RFTheme.muted)
+                            }
+                            .padding(12)
+                            .background(RFTheme.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        }
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 24)
+            }
+            .padding(.top, 10)
+        }
+        .sheet(item: $editingSchedule) { item in
+            ScheduleWorkoutSheet(seed: item) { updated in
+                WorkoutScheduleStore.update(updated)
+            }
+        }
+    }
+
+    private var weekdaySymbols: [String] {
+        let symbols = calendar.veryShortStandaloneWeekdaySymbols
+        let shift = calendar.firstWeekday - 1
+        return Array(symbols[shift...] + symbols[..<shift])
+    }
+
+    private func shiftMonth(_ delta: Int) {
+        if let next = calendar.date(byAdding: .month, value: delta, to: month) {
+            month = next
+            selectedDate = calendar.startOfDay(for: next)
+        }
+    }
+}
+
+struct CalendarDayCell: View {
+    let date: Date
+    let selected: Bool
+    let workoutCount: Int
+    let plannedCount: Int
+    let skippedCount: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Text("\(Calendar.current.component(.day, from: date))")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(selected ? Color.white : Color.primary)
+
+                HStack(spacing: 3) {
+                    if workoutCount > 0 {
+                        Circle().fill(RFTheme.success).frame(width: 5, height: 5)
+                    }
+                    if plannedCount > 0 {
+                        Circle().fill(RFTheme.accent).frame(width: 5, height: 5)
+                    }
+                    if skippedCount > 0 {
+                        Circle().fill(Color.orange).frame(width: 5, height: 5)
+                    }
+                }
+                .frame(height: 6)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(selected ? RFTheme.accent : RFTheme.surface.opacity(0.72))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
     }
 }
 
 struct SessionDetailView: View {
     let session: WorkoutSession
+    @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var allSessions: [WorkoutSession]
+
+    private var previousComparable: WorkoutSession? {
+        let earlier = allSessions.filter {
+            $0.endedAt != nil &&
+            $0.startedAt < session.startedAt &&
+            GymProfileStore.sessionGymID($0) == GymProfileStore.sessionGymID(session)
+        }
+
+        if let exact = earlier.first(where: { $0.title == session.title }) {
+            return exact
+        }
+
+        let currentIDs = Set(session.exercises.map(\.exerciseID))
+        guard !currentIDs.isEmpty else { return nil }
+
+        return earlier
+            .map { candidate -> (WorkoutSession, Double) in
+                let ids = Set(candidate.exercises.map(\.exerciseID))
+                let overlap = Double(currentIDs.intersection(ids).count)
+                let union = Double(currentIDs.union(ids).count)
+                return (candidate, union > 0 ? overlap / union : 0)
+            }
+            .filter { $0.1 >= 0.45 }
+            .sorted { $0.1 > $1.1 }
+            .first?.0
+    }
 
     var body: some View {
         ScrollView {
@@ -4445,9 +4936,20 @@ struct SessionDetailView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
 
+                Label(
+                    GymProfileStore.profile(id: session.gymID).name,
+                    systemImage: "mappin.and.ellipse"
+                )
+                .font(.caption.bold())
+                .foregroundStyle(RFTheme.accent)
+
                 HStack {
                     StatCard(title: L10n.text("Duration", "Duur"), value: durationString(session.duration), icon: "clock.fill")
                     StatCard(title: L10n.text("Volume", "Volume"), value: "\(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel)", icon: "chart.bar.fill")
+                }
+
+                if let previousComparable {
+                    WorkoutComparisonCard(current: session, previous: previousComparable)
                 }
 
                 ForEach(session.exercises.sorted(by: { $0.order < $1.order })) { log in
@@ -4455,6 +4957,7 @@ struct SessionDetailView: View {
                         Text(ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise")
                             .font(.headline)
                             .foregroundStyle(RFTheme.accent)
+
                         ForEach(log.sets.filter(\.completed).sorted(by: { $0.order < $1.order })) { set in
                             HStack {
                                 Text("Set \(set.order + 1)")
@@ -4490,6 +4993,127 @@ struct SessionDetailView: View {
         .background(RFTheme.bg)
         .navigationTitle(session.title)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct WorkoutComparisonCard: View {
+    let current: WorkoutSession
+    let previous: WorkoutSession
+
+    private var currentSets: Int {
+        current.exercises.flatMap(\.sets).filter(\.completed).count
+    }
+
+    private var previousSets: Int {
+        previous.exercises.flatMap(\.sets).filter(\.completed).count
+    }
+
+    private var volumeDelta: Double {
+        current.totalVolume - previous.totalVolume
+    }
+
+    private var durationDelta: TimeInterval {
+        current.duration - previous.duration
+    }
+
+    private var setDelta: Int {
+        currentSets - previousSets
+    }
+
+    private var exerciseChanges: [(String, Double)] {
+        current.exercises.compactMap { log in
+            guard let previousLog = previous.exercises.first(where: { $0.exerciseID == log.exerciseID }),
+                  let exercise = ExerciseCatalog.find(log.exerciseID) else {
+                return nil
+            }
+
+            let currentBest = log.sets.filter(\.countsForPR).map(\.weightKg).max() ?? 0
+            let previousBest = previousLog.sets.filter(\.countsForPR).map(\.weightKg).max() ?? 0
+            guard currentBest > 0 || previousBest > 0 else { return nil }
+            return (exercise.name, currentBest - previousBest)
+        }
+        .sorted { abs($0.1) > abs($1.1) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.text("Compared with previous", "Vergeleken met vorige"))
+                        .font(.title3.bold())
+                    Text(previous.startedAt.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption)
+                        .foregroundStyle(RFTheme.muted)
+                }
+                Spacer()
+                Image(systemName: "arrow.left.arrow.right")
+                    .foregroundStyle(RFTheme.accent)
+            }
+
+            HStack {
+                comparisonMetric(
+                    title: L10n.text("Volume", "Volume"),
+                    value: signedWeight(volumeDelta),
+                    positive: volumeDelta >= 0
+                )
+                comparisonMetric(
+                    title: L10n.text("Sets", "Sets"),
+                    value: signedInt(setDelta),
+                    positive: setDelta >= 0
+                )
+                comparisonMetric(
+                    title: L10n.text("Time", "Tijd"),
+                    value: signedDuration(durationDelta),
+                    positive: durationDelta <= 0
+                )
+            }
+
+            if !exerciseChanges.isEmpty {
+                Divider()
+                ForEach(Array(exerciseChanges.prefix(5).enumerated()), id: \.offset) { _, item in
+                    HStack {
+                        Text(item.0)
+                            .font(.caption)
+                            .lineLimit(1)
+                        Spacer()
+                        Text(signedWeight(item.1))
+                            .font(.caption.bold())
+                            .foregroundStyle(item.1 > 0 ? RFTheme.success : item.1 < 0 ? Color.orange : RFTheme.muted)
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(RFTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func comparisonMetric(title: String, value: String, positive: Bool) -> some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.headline)
+                .foregroundStyle(positive ? RFTheme.success : Color.orange)
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(RFTheme.muted)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func signedWeight(_ kg: Double) -> String {
+        let displayed = AppPreferences.displayWeight(abs(kg))
+        let sign = kg > 0 ? "+" : kg < 0 ? "−" : "±"
+        return "\(sign)\(displayed.formatted(.number.precision(.fractionLength(0...1)))) \(AppPreferences.weightLabel)"
+    }
+
+    private func signedInt(_ value: Int) -> String {
+        value > 0 ? "+\(value)" : "\(value)"
+    }
+
+    private func signedDuration(_ value: TimeInterval) -> String {
+        let minutes = Int(abs(value) / 60)
+        let sign = value > 0 ? "+" : value < 0 ? "−" : "±"
+        return "\(sign)\(minutes)m"
     }
 }
 
