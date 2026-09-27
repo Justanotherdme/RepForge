@@ -6,14 +6,154 @@ import UIKit
 
 // MARK: - Theme
 
+enum AppPreferences {
+    static var language: String {
+        UserDefaults.standard.string(forKey: "appLanguage") ?? "en"
+    }
+
+    static var measurementSystem: String {
+        UserDefaults.standard.string(forKey: "measurementSystem") ?? "metric"
+    }
+
+    static var appearance: String {
+        UserDefaults.standard.string(forKey: "appearance") ?? "dark"
+    }
+
+    static var themePreset: String {
+        UserDefaults.standard.string(forKey: "themePreset") ?? "forge"
+    }
+
+    static var hapticsEnabled: Bool {
+        if UserDefaults.standard.object(forKey: "hapticsEnabled") == nil { return true }
+        return UserDefaults.standard.bool(forKey: "hapticsEnabled")
+    }
+
+    static var showPreviousSets: Bool {
+        if UserDefaults.standard.object(forKey: "showPreviousSets") == nil { return true }
+        return UserDefaults.standard.bool(forKey: "showPreviousSets")
+    }
+
+    static var defaultSets: Int {
+        let value = UserDefaults.standard.integer(forKey: "defaultSets")
+        return value == 0 ? 3 : max(1, min(6, value))
+    }
+
+    static var isImperial: Bool { measurementSystem == "imperial" }
+    static var weightLabel: String { isImperial ? "lb" : "kg" }
+    static var heightLabel: String { isImperial ? "in" : "cm" }
+    static var distanceLabel: String { isImperial ? "mi" : "km" }
+
+    static func displayWeight(_ kg: Double) -> Double {
+        isImperial ? kg * 2.2046226218 : kg
+    }
+
+    static func storedWeightKg(_ displayed: Double) -> Double {
+        isImperial ? displayed / 2.2046226218 : displayed
+    }
+
+    static func displayVolume(_ kgVolume: Double) -> Double {
+        displayWeight(kgVolume)
+    }
+
+    static func displayHeight(_ cm: Double) -> Double {
+        isImperial ? cm / 2.54 : cm
+    }
+
+    static func storedHeightCm(_ displayed: Double) -> Double {
+        isImperial ? displayed * 2.54 : displayed
+    }
+}
+
+enum L10n {
+    static func text(_ english: String, _ dutch: String) -> String {
+        AppPreferences.language == "nl" ? dutch : english
+    }
+
+    static var profile: String { text("Profile", "Profiel") }
+    static var history: String { text("History", "Geschiedenis") }
+    static var workout: String { text("Workout", "Training") }
+    static var exercises: String { text("Exercises", "Oefeningen") }
+    static var settings: String { text("Settings", "Instellingen") }
+    static var done: String { text("Done", "Gereed") }
+    static var startWorkout: String { text("Start Workout", "Start training") }
+    static var addExercise: String { text("Add Exercise", "Oefening toevoegen") }
+    static var finish: String { text("Finish", "Afronden") }
+}
+
 enum RFTheme {
-    static let bg = Color(red: 0.055, green: 0.070, blue: 0.078)
-    static let surface = Color(red: 0.105, green: 0.135, blue: 0.150)
-    static let raised = Color(red: 0.140, green: 0.175, blue: 0.190)
-    static let field = Color(red: 0.075, green: 0.095, blue: 0.105)
-    static let accent = Color(red: 0.18, green: 0.63, blue: 1.0)
+    private static var explicitLight: Bool { AppPreferences.appearance == "light" }
+    private static var systemMode: Bool { AppPreferences.appearance == "system" }
+
+    static var bg: Color {
+        if systemMode { return Color(uiColor: .systemBackground) }
+        if explicitLight { return Color(red: 0.955, green: 0.965, blue: 0.975) }
+
+        switch AppPreferences.themePreset {
+        case "oled": return .black
+        case "graphite": return Color(red: 0.075, green: 0.075, blue: 0.082)
+        case "navy": return Color(red: 0.025, green: 0.055, blue: 0.095)
+        default: return Color(red: 0.055, green: 0.070, blue: 0.078)
+        }
+    }
+
+    static var surface: Color {
+        if systemMode { return Color(uiColor: .secondarySystemBackground) }
+        if explicitLight { return .white }
+
+        switch AppPreferences.themePreset {
+        case "oled": return Color(red: 0.055, green: 0.055, blue: 0.060)
+        case "graphite": return Color(red: 0.125, green: 0.125, blue: 0.135)
+        case "navy": return Color(red: 0.070, green: 0.105, blue: 0.155)
+        default: return Color(red: 0.105, green: 0.135, blue: 0.150)
+        }
+    }
+
+    static var raised: Color {
+        if systemMode { return Color(uiColor: .tertiarySystemBackground) }
+        if explicitLight { return Color(red: 0.90, green: 0.92, blue: 0.94) }
+        return surface.opacity(0.82).mix(with: .white, by: 0.08)
+    }
+
+    static var field: Color {
+        if systemMode { return Color(uiColor: .tertiarySystemFill) }
+        if explicitLight { return Color.black.opacity(0.06) }
+        return Color.black.opacity(AppPreferences.themePreset == "oled" ? 0.62 : 0.28)
+    }
+
+    static var accent: Color {
+        switch AppPreferences.themePreset {
+        case "emerald": return Color(red: 0.10, green: 0.78, blue: 0.48)
+        case "orange": return Color(red: 1.0, green: 0.48, blue: 0.12)
+        case "purple": return Color(red: 0.63, green: 0.43, blue: 1.0)
+        default: return Color(red: 0.18, green: 0.63, blue: 1.0)
+        }
+    }
+
     static let success = Color(red: 0.16, green: 0.78, blue: 0.43)
-    static let muted = Color.white.opacity(0.52)
+
+    static var muted: Color {
+        if systemMode { return Color.secondary }
+        return explicitLight ? Color.black.opacity(0.50) : Color.white.opacity(0.52)
+    }
+}
+
+extension Color {
+    fileprivate func mix(with other: Color, by amount: Double) -> Color {
+        // Simple adaptive fallback; opacity blend avoids private color extraction.
+        self.overlay(other.opacity(amount))
+    }
+}
+
+enum Haptics {
+    static func light() {
+        guard AppPreferences.hapticsEnabled else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    static func success() {
+        guard AppPreferences.hapticsEnabled else { return }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
 }
 
 // MARK: - Exercise catalog
@@ -898,7 +1038,6 @@ struct RepForgeApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .preferredColorScheme(.dark)
         }
         .modelContainer(container)
     }
@@ -909,27 +1048,56 @@ struct RootView: View {
     @Query private var profiles: [UserProfile]
     @State private var tab = 2
 
+    @AppStorage("appLanguage") private var appLanguage = "en"
+    @AppStorage("appearance") private var appearance = "dark"
+    @AppStorage("themePreset") private var themePreset = "forge"
+    @AppStorage("textSize") private var textSize = "standard"
+    @AppStorage("measurementSystem") private var measurementSystem = "metric"
+
     var body: some View {
         TabView(selection: $tab) {
             ProfileView()
-                .tabItem { Label("Profile", systemImage: "person.crop.circle.fill") }
+                .tabItem { Label(L10n.profile, systemImage: "person.crop.circle.fill") }
                 .tag(0)
             HistoryView()
-                .tabItem { Label("History", systemImage: "clock.fill") }
+                .tabItem { Label(L10n.history, systemImage: "clock.fill") }
                 .tag(1)
             StartWorkoutView()
-                .tabItem { Label("Workout", systemImage: "plus.circle.fill") }
+                .tabItem { Label(L10n.workout, systemImage: "plus.circle.fill") }
                 .tag(2)
             ExerciseLibraryView()
-                .tabItem { Label("Exercises", systemImage: "dumbbell.fill") }
+                .tabItem { Label(L10n.exercises, systemImage: "dumbbell.fill") }
                 .tag(3)
+            SettingsView()
+                .tabItem { Label(L10n.settings, systemImage: "gearshape.fill") }
+                .tag(4)
         }
         .tint(RFTheme.accent)
+        .preferredColorScheme(preferredColorScheme)
+        .dynamicTypeSize(preferredTextSize)
+        .id("\(appLanguage)-\(appearance)-\(themePreset)-\(textSize)-\(measurementSystem)")
         .task {
             if profiles.isEmpty {
                 context.insert(UserProfile())
                 try? context.save()
             }
+        }
+    }
+
+    private var preferredColorScheme: ColorScheme? {
+        switch appearance {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
+    }
+
+    private var preferredTextSize: DynamicTypeSize {
+        switch textSize {
+        case "compact": return .small
+        case "large": return .xLarge
+        case "xlarge": return .xxLarge
+        default: return .medium
         }
     }
 }
@@ -1052,7 +1220,7 @@ struct StartWorkoutView: View {
                 .padding()
             }
             .background(RFTheme.bg)
-            .navigationTitle("Start Workout")
+            .navigationTitle(L10n.startWorkout)
             .sheet(isPresented: $showTemplateEditor) {
                 TemplateEditorView()
             }
@@ -1080,7 +1248,7 @@ struct StartWorkoutView: View {
             ExerciseLog(
                 exerciseID: id,
                 order: index,
-                sets: (0..<3).map { WorkoutSet(order: $0) }
+                sets: (0..<AppPreferences.defaultSets).map { WorkoutSet(order: $0) }
             )
         }
         let session = WorkoutSession(title: title, exercises: logs)
@@ -1552,7 +1720,7 @@ struct ExercisePickerView: View {
             .scrollDismissesKeyboard(.interactively)
             .scrollContentBackground(.hidden)
             .background(RFTheme.bg)
-            .navigationTitle("Exercises")
+            .navigationTitle(L10n.exercises)
             .safeAreaInset(edge: .top) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack {
@@ -1616,6 +1784,7 @@ struct ActiveWorkoutView: View {
     @State private var showExercisePicker = false
     @State private var pickerIDs: [String] = []
     @State private var showFinishConfirm = false
+    @AppStorage("keepScreenAwake") private var keepScreenAwake = true
 
     var body: some View {
         NavigationStack {
@@ -1630,7 +1799,7 @@ struct ActiveWorkoutView: View {
                             }
                         }
                         Spacer()
-                        Button("Finish") { showFinishConfirm = true }
+                        Button(L10n.finish) { showFinishConfirm = true }
                             .buttonStyle(.borderedProminent)
                             .tint(RFTheme.success)
                             .font(.headline)
@@ -1654,7 +1823,7 @@ struct ActiveWorkoutView: View {
                         pickerIDs = []
                         showExercisePicker = true
                     } label: {
-                        Label("Add Exercise", systemImage: "plus")
+                        Label(L10n.addExercise, systemImage: "plus")
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 11)
                     }
@@ -1674,13 +1843,6 @@ struct ActiveWorkoutView: View {
                     }
                 }
 
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") {
-                        dismissKeyboard()
-                    }
-                    .bold()
-                }
             }
             .confirmationDialog("Finish this workout?", isPresented: $showFinishConfirm) {
                 Button("Finish Workout") {
@@ -1695,16 +1857,16 @@ struct ActiveWorkoutView: View {
             .sheet(isPresented: $showExercisePicker, onDismiss: addPickedExercises) {
                 ExercisePickerView(selectedIDs: $pickerIDs)
             }
+            .onAppear {
+                UIApplication.shared.isIdleTimerDisabled = keepScreenAwake
+            }
+            .onChange(of: keepScreenAwake) { _, enabled in
+                UIApplication.shared.isIdleTimerDisabled = enabled
+            }
+            .onDisappear {
+                UIApplication.shared.isIdleTimerDisabled = false
+            }
         }
-    }
-
-    private func dismissKeyboard() {
-        UIApplication.shared.sendAction(
-            #selector(UIResponder.resignFirstResponder),
-            to: nil,
-            from: nil,
-            for: nil
-        )
     }
 
     private func addPickedExercises() {
@@ -1762,7 +1924,7 @@ struct WorkoutExerciseBlock: View {
                                 .foregroundStyle(RFTheme.accent)
 
                             HStack(spacing: 8) {
-                                Text(best > 0 ? "Best: \(best.formatted(.number.precision(.fractionLength(0...2)))) kg" : "No previous best")
+                                Text(best > 0 ? "Best: \(AppPreferences.displayWeight(best).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)" : L10n.text("No previous best", "Nog geen persoonlijk record"))
                                 if let target = log.targetReps {
                                     Text("Target \(target) reps")
                                         .foregroundStyle(RFTheme.accent)
@@ -1812,8 +1974,10 @@ struct WorkoutExerciseBlock: View {
 
             HStack {
                 Text("Set").frame(width: 42, alignment: .leading)
-                Text("Previous").frame(maxWidth: .infinity)
-                Text("kg").frame(width: 76)
+                if AppPreferences.showPreviousSets {
+                    Text(L10n.text("Previous", "Vorige")).frame(maxWidth: .infinity)
+                }
+                Text(AppPreferences.weightLabel).frame(width: 76)
                 Text("Reps").frame(width: 64)
                 Image(systemName: "checkmark").frame(width: 34)
             }
@@ -1858,6 +2022,7 @@ struct WorkoutExerciseBlock: View {
     }
 
     private func addSet() {
+        Haptics.light()
         let next = (log.sets.map(\.order).max() ?? -1) + 1
         log.sets.append(WorkoutSet(order: next))
         try? context.save()
@@ -1904,11 +2069,12 @@ struct WorkoutSetRow: View {
                         dragOffset = 0
                         restingOffset = 0
                     }
+                    Haptics.light()
                     onDelete()
                 } label: {
                     VStack(spacing: 3) {
                         Image(systemName: "trash.fill")
-                        Text("Delete")
+                        Text(L10n.text("Delete", "Verwijder"))
                             .font(.caption2.bold())
                     }
                     .foregroundStyle(.white)
@@ -1916,7 +2082,7 @@ struct WorkoutSetRow: View {
                     .background(Color.red)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
-                .accessibilityLabel("Delete set \(set.order + 1)")
+                .accessibilityLabel(L10n.text("Delete set \(set.order + 1)", "Set \(set.order + 1) verwijderen"))
             }
 
             rowContent
@@ -1952,6 +2118,7 @@ struct WorkoutSetRow: View {
                                     dragOffset = -360
                                 }
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                                    Haptics.light()
                                     onDelete()
                                     dragOffset = 0
                                     restingOffset = 0
@@ -1989,28 +2156,43 @@ struct WorkoutSetRow: View {
                 .background(RFTheme.field)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
-            Text(previous.map { "\($0.0.formatted(.number.precision(.fractionLength(0...2)))) × \($0.1)" } ?? "—")
-                .font(.caption)
-                .foregroundStyle(RFTheme.muted)
-                .frame(maxWidth: .infinity)
+            if AppPreferences.showPreviousSets {
+                Text(previous.map {
+                    "\(AppPreferences.displayWeight($0.0).formatted(.number.precision(.fractionLength(0...2)))) × \($0.1)"
+                } ?? "—")
+                    .font(.caption)
+                    .foregroundStyle(RFTheme.muted)
+                    .frame(maxWidth: .infinity)
+            }
 
-            TextField("0", value: $set.weightKg, format: .number.precision(.fractionLength(0...2)))
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.center)
-                .frame(width: 76, height: 42)
-                .background(RFTheme.field)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+            DoneNumberField(
+                value: Binding(
+                    get: { AppPreferences.displayWeight(set.weightKg) },
+                    set: { set.weightKg = AppPreferences.storedWeightKg($0) }
+                ),
+                integerOnly: false,
+                placeholder: "0"
+            )
+            .frame(width: 76, height: 42)
+            .background(RFTheme.field)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
 
-            TextField("0", value: $set.reps, format: .number)
-                .keyboardType(.numberPad)
-                .multilineTextAlignment(.center)
-                .frame(width: 64, height: 42)
-                .background(RFTheme.field)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+            DoneNumberField(
+                value: Binding(
+                    get: { Double(set.reps) },
+                    set: { set.reps = max(0, Int($0.rounded())) }
+                ),
+                integerOnly: true,
+                placeholder: "0"
+            )
+            .frame(width: 64, height: 42)
+            .background(RFTheme.field)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
 
             Button {
                 set.completed.toggle()
                 set.completedAt = set.completed ? .now : nil
+                if set.completed { Haptics.success() } else { Haptics.light() }
                 try? context.save()
             } label: {
                 Image(systemName: set.completed ? "checkmark.circle.fill" : "circle")
@@ -2020,6 +2202,98 @@ struct WorkoutSetRow: View {
             .frame(width: 34)
         }
         .frame(height: 44)
+    }
+}
+
+struct DoneNumberField: UIViewRepresentable {
+    @Binding var value: Double
+    let integerOnly: Bool
+    let placeholder: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIView(context: Context) -> UITextField {
+        let field = UITextField()
+        field.delegate = context.coordinator
+        field.keyboardType = integerOnly ? .numberPad : .decimalPad
+        field.textAlignment = .center
+        field.textColor = .label
+        field.tintColor = UIColor(RFTheme.accent)
+        field.placeholder = placeholder
+        field.adjustsFontSizeToFitWidth = true
+        field.minimumFontSize = 12
+        field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
+
+        let toolbar = UIToolbar()
+        toolbar.sizeToFit()
+        toolbar.items = [
+            UIBarButtonItem(systemItem: .flexibleSpace),
+            UIBarButtonItem(
+                title: L10n.done,
+                style: .done,
+                target: context.coordinator,
+                action: #selector(Coordinator.doneTapped)
+            )
+        ]
+        field.inputAccessoryView = toolbar
+        context.coordinator.field = field
+        field.text = formatted(value)
+        return field
+    }
+
+    func updateUIView(_ uiView: UITextField, context: Context) {
+        context.coordinator.parent = self
+        guard !uiView.isFirstResponder else { return }
+        let expected = formatted(value)
+        if uiView.text != expected {
+            uiView.text = expected
+        }
+
+        if let toolbar = uiView.inputAccessoryView as? UIToolbar,
+           let done = toolbar.items?.last {
+            done.title = L10n.done
+        }
+    }
+
+    private func formatted(_ value: Double) -> String {
+        guard value != 0 else { return "" }
+        if integerOnly { return String(Int(value.rounded())) }
+        return value.formatted(.number.precision(.fractionLength(0...2)))
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: DoneNumberField
+        weak var field: UITextField?
+
+        init(parent: DoneNumberField) {
+            self.parent = parent
+        }
+
+        @objc func changed(_ sender: UITextField) {
+            let raw = sender.text ?? ""
+            let normalized = raw.replacingOccurrences(of: ",", with: ".")
+            guard !normalized.isEmpty else {
+                parent.value = 0
+                return
+            }
+
+            if parent.integerOnly {
+                parent.value = Double(Int(normalized) ?? 0)
+            } else if let parsed = Double(normalized) {
+                parent.value = max(0, parsed)
+            }
+        }
+
+        @objc func doneTapped() {
+            field?.resignFirstResponder()
+        }
+
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            textField.resignFirstResponder()
+            return true
+        }
     }
 }
 
@@ -2051,7 +2325,7 @@ struct HistoryView: View {
                                     Text(session.startedAt, format: .dateTime.day().month(.abbreviated))
                                         .foregroundStyle(.secondary)
                                 }
-                                Text("\(session.exercises.count) exercises • \(Int(session.totalVolume)) kg volume • \(durationString(session.duration))")
+                                Text("\(session.exercises.count) \(L10n.text("exercises", "oefeningen")) • \(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel) \(L10n.text("volume", "volume")) • \(durationString(session.duration))")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -2062,7 +2336,7 @@ struct HistoryView: View {
                 }
             }
             .background(RFTheme.bg)
-            .navigationTitle("History")
+            .navigationTitle(L10n.history)
         }
     }
 }
@@ -2075,7 +2349,7 @@ struct SessionDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
                     StatCard(title: "Duration", value: durationString(session.duration), icon: "clock.fill")
-                    StatCard(title: "Volume", value: "\(Int(session.totalVolume)) kg", icon: "chart.bar.fill")
+                    StatCard(title: L10n.text("Volume", "Volume"), value: "\(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel)", icon: "chart.bar.fill")
                 }
 
                 ForEach(session.exercises.sorted(by: { $0.order < $1.order })) { log in
@@ -2087,7 +2361,7 @@ struct SessionDetailView: View {
                             HStack {
                                 Text("Set \(set.order + 1)")
                                 Spacer()
-                                Text("\(set.weightKg.formatted(.number.precision(.fractionLength(0...2)))) kg × \(set.reps)")
+                                Text("\(AppPreferences.displayWeight(set.weightKg).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel) × \(set.reps)")
                                     .bold()
                             }
                             .font(.subheadline)
@@ -2255,7 +2529,7 @@ struct ExerciseDetailView: View {
                         Text("Volume \(Int(p.volume)) kg").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text("\(p.weight.formatted(.number.precision(.fractionLength(0...2)))) kg")
+                    Text("\(AppPreferences.displayWeight(p.weight).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)")
                         .font(.headline)
                         .foregroundStyle(RFTheme.accent)
                 }
@@ -2303,9 +2577,9 @@ struct ExerciseDetailView: View {
         let maxVolume = performances.map(\.volume).max() ?? 0
 
         VStack(spacing: 12) {
-            RecordRow(name: "Best weight", value: bestWeight > 0 ? "\(bestWeight.formatted(.number.precision(.fractionLength(0...2)))) kg" : "—")
-            RecordRow(name: "Estimated 1RM", value: bestRM > 0 ? "\(bestRM.formatted(.number.precision(.fractionLength(0...1)))) kg" : "—")
-            RecordRow(name: "Max session volume", value: maxVolume > 0 ? "\(Int(maxVolume)) kg" : "—")
+            RecordRow(name: L10n.text("Best weight", "Beste gewicht"), value: bestWeight > 0 ? "\(AppPreferences.displayWeight(bestWeight).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)" : "—")
+            RecordRow(name: "Estimated 1RM", value: bestRM > 0 ? "\(AppPreferences.displayWeight(bestRM).formatted(.number.precision(.fractionLength(0...1)))) \(AppPreferences.weightLabel)" : "—")
+            RecordRow(name: L10n.text("Max session volume", "Max sessievolume"), value: maxVolume > 0 ? "\(Int(AppPreferences.displayVolume(maxVolume))) \(AppPreferences.weightLabel)" : "—")
         }
     }
 }
@@ -2540,7 +2814,7 @@ struct ProfileView: View {
 
                         HStack {
                             StatCard(title: "Workouts", value: "\(completed.count)", icon: "dumbbell.fill")
-                            StatCard(title: "Total Volume", value: "\(Int(completed.reduce(0) { $0 + $1.totalVolume })) kg", icon: "chart.bar.fill")
+                            StatCard(title: L10n.text("Total Volume", "Totaal volume"), value: "\(Int(AppPreferences.displayVolume(completed.reduce(0) { $0 + $1.totalVolume }))) \(AppPreferences.weightLabel)", icon: "chart.bar.fill")
                         }
 
                         VStack(alignment: .leading, spacing: 12) {
@@ -2571,7 +2845,7 @@ struct ProfileView: View {
                 .padding()
             }
             .background(RFTheme.bg)
-            .navigationTitle("Profile")
+            .navigationTitle(L10n.profile)
             .sheet(isPresented: $editing) {
                 if let profile {
                     EditProfileView(profile: profile)
@@ -2599,23 +2873,140 @@ struct EditProfileView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Display name", text: $profile.displayName)
-                TextField("Bio", text: $profile.bio, axis: .vertical)
-                TextField("Body weight (kg)", value: $profile.bodyWeightKg, format: .number)
-                    .keyboardType(.decimalPad)
-                TextField("Height (cm)", value: $profile.heightCm, format: .number)
-                    .keyboardType(.decimalPad)
+                TextField(L10n.text("Display name", "Weergavenaam"), text: $profile.displayName)
+                TextField(L10n.text("Bio", "Bio"), text: $profile.bio, axis: .vertical)
+
+                DoneNumberField(
+                    value: Binding(
+                        get: { AppPreferences.displayWeight(profile.bodyWeightKg) },
+                        set: { profile.bodyWeightKg = AppPreferences.storedWeightKg($0) }
+                    ),
+                    integerOnly: false,
+                    placeholder: L10n.text("Body weight", "Lichaamsgewicht")
+                )
+                .frame(height: 44)
+                .overlay(alignment: .trailing) {
+                    Text(AppPreferences.weightLabel)
+                        .foregroundStyle(.secondary)
+                        .padding(.trailing, 10)
+                }
+
+                DoneNumberField(
+                    value: Binding(
+                        get: { AppPreferences.displayHeight(profile.heightCm) },
+                        set: { profile.heightCm = AppPreferences.storedHeightCm($0) }
+                    ),
+                    integerOnly: false,
+                    placeholder: L10n.text("Height", "Lengte")
+                )
+                .frame(height: 44)
+                .overlay(alignment: .trailing) {
+                    Text(AppPreferences.heightLabel)
+                        .foregroundStyle(.secondary)
+                        .padding(.trailing, 10)
+                }
             }
-            .navigationTitle("Profile")
+            .navigationTitle(L10n.profile)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button(L10n.text("Save", "Opslaan")) {
                         try? context.save()
                         dismiss()
                     }
                     .bold()
                 }
             }
+        }
+    }
+}
+
+// MARK: - Settings
+
+struct SettingsView: View {
+    @AppStorage("appLanguage") private var appLanguage = "en"
+    @AppStorage("measurementSystem") private var measurementSystem = "metric"
+    @AppStorage("appearance") private var appearance = "dark"
+    @AppStorage("themePreset") private var themePreset = "forge"
+    @AppStorage("textSize") private var textSize = "standard"
+    @AppStorage("hapticsEnabled") private var hapticsEnabled = true
+    @AppStorage("showPreviousSets") private var showPreviousSets = true
+    @AppStorage("keepScreenAwake") private var keepScreenAwake = true
+    @AppStorage("defaultSets") private var defaultSets = 3
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(L10n.text("Units & region", "Eenheden & regio")) {
+                    Picker(L10n.text("Language", "Taal"), selection: $appLanguage) {
+                        Text("English").tag("en")
+                        Text("Nederlands").tag("nl")
+                    }
+
+                    Picker(L10n.text("Measurement system", "Meetsysteem"), selection: $measurementSystem) {
+                        Text(L10n.text("Metric (kg, cm, km)", "Metrisch (kg, cm, km)")).tag("metric")
+                        Text(L10n.text("Imperial (lb, in, mi)", "Imperiaal (lb, in, mi)")).tag("imperial")
+                    }
+
+                    LabeledContent(L10n.text("Weight", "Gewicht"), value: AppPreferences.weightLabel)
+                    LabeledContent(L10n.text("Height", "Lengte"), value: AppPreferences.heightLabel)
+                    LabeledContent(L10n.text("Distance", "Afstand"), value: AppPreferences.distanceLabel)
+                }
+
+                Section(L10n.text("Appearance", "Weergave")) {
+                    Picker(L10n.text("Mode", "Modus"), selection: $appearance) {
+                        Text(L10n.text("System", "Systeem")).tag("system")
+                        Text(L10n.text("Dark", "Donker")).tag("dark")
+                        Text(L10n.text("Light", "Licht")).tag("light")
+                    }
+
+                    Picker(L10n.text("Theme", "Thema"), selection: $themePreset) {
+                        Text("Forge Blue").tag("forge")
+                        Text("OLED").tag("oled")
+                        Text("Graphite").tag("graphite")
+                        Text("Navy").tag("navy")
+                        Text("Emerald").tag("emerald")
+                        Text("Orange").tag("orange")
+                        Text("Purple").tag("purple")
+                    }
+
+                    Picker(L10n.text("Text size", "Tekstgrootte"), selection: $textSize) {
+                        Text(L10n.text("Compact", "Compact")).tag("compact")
+                        Text(L10n.text("Standard", "Standaard")).tag("standard")
+                        Text(L10n.text("Large", "Groot")).tag("large")
+                        Text(L10n.text("Extra large", "Extra groot")).tag("xlarge")
+                    }
+                }
+
+                Section(L10n.text("Workout", "Training")) {
+                    Stepper(
+                        "\(L10n.text("Default sets for new exercises", "Standaard sets voor nieuwe oefeningen")): \(defaultSets)",
+                        value: $defaultSets,
+                        in: 1...6
+                    )
+
+                    Toggle(L10n.text("Show previous sets", "Vorige sets tonen"), isOn: $showPreviousSets)
+                    Toggle(L10n.text("Keep screen awake during workout", "Scherm aanhouden tijdens training"), isOn: $keepScreenAwake)
+                    Toggle(L10n.text("Haptic feedback", "Haptische feedback"), isOn: $hapticsEnabled)
+                }
+
+                Section(L10n.text("Storage", "Opslag")) {
+                    LabeledContent(L10n.text("Workout data", "Trainingsdata"), value: L10n.text("Stored locally", "Lokaal opgeslagen"))
+                    Text(L10n.text(
+                        "Your workouts, templates and profile remain on this device.",
+                        "Je trainingen, templates en profiel blijven op dit apparaat."
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
+                Section(L10n.text("About", "Over")) {
+                    LabeledContent("RepForge", value: "0.1.0")
+                    LabeledContent(L10n.text("Exercise media", "Oefenmedia"), value: "Free Exercise DB")
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(RFTheme.bg)
+            .navigationTitle(L10n.settings)
         }
     }
 }
