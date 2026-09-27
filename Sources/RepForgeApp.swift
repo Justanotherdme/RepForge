@@ -8097,33 +8097,55 @@ struct SettingsView: View {
     @State private var backupMessage: String?
 
     private var workoutCSV: String {
-        var rows = ["date,workout,exercise,set,type,weight_kg,reps,duration_seconds,distance_km,incline_percent,calories,avg_hr,rpe,rir,note"]
+        var rows: [String] = [
+            "date,workout,exercise,set,type,weight_kg,reps,duration_seconds,distance_km,incline_percent,calories,avg_hr,rpe,rir,note"
+        ]
+
         for session in exportSessions where session.endedAt != nil {
+            let dateValue = csv(session.startedAt.ISO8601Format())
+            let workoutValue = csv(session.title)
+
             for log in session.exercises.sorted(by: { $0.order < $1.order }) {
                 let exerciseName = ExerciseCatalog.find(log.exerciseID)?.name ?? log.exerciseID
+                let exerciseValue = csv(exerciseName)
+
                 for set in log.sets.sorted(by: { $0.order < $1.order }) where set.completed {
-                    let fields = [
-                        csv(session.startedAt.ISO8601Format()),
-                        csv(session.title),
-                        csv(exerciseName),
-                        "\(set.order + 1)",
-                        csv(set.setType),
-                        set.weightKg.formatted(.number.locale(Locale(identifier: "en_US_POSIX")).precision(.fractionLength(0...3))),
-                        "\(set.reps)",
-                        set.durationSeconds.map { String($0) } ?? "",
-                        set.distanceKm.map { String($0) } ?? "",
-                        set.inclinePercent.map { String($0) } ?? "",
-                        set.calories.map { String($0) } ?? "",
-                        set.averageHeartRate.map { String($0) } ?? "",
-                        set.rpe.map { String($0) } ?? "",
-                        set.rir.map { String($0) } ?? "",
-                        csv(set.note ?? "")
-                    ]
+                    var fields: [String] = []
+                    fields.append(dateValue)
+                    fields.append(workoutValue)
+                    fields.append(exerciseValue)
+                    fields.append(String(set.order + 1))
+                    fields.append(csv(set.setType))
+                    fields.append(csvNumber(set.weightKg))
+                    fields.append(String(set.reps))
+                    fields.append(optionalCSVNumber(set.durationSeconds))
+                    fields.append(optionalCSVNumber(set.distanceKm))
+                    fields.append(optionalCSVNumber(set.inclinePercent))
+                    fields.append(optionalCSVNumber(set.calories))
+                    fields.append(set.averageHeartRate.map(String.init) ?? "")
+                    fields.append(optionalCSVNumber(set.rpe))
+                    fields.append(set.rir.map(String.init) ?? "")
+                    fields.append(csv(set.note ?? ""))
                     rows.append(fields.joined(separator: ","))
                 }
             }
         }
+
         return rows.joined(separator: "\n")
+    }
+
+    private func csvNumber(_ value: Double) -> String {
+        String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), value)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "0").inverted.inverted)
+    }
+
+    private func optionalCSVNumber(_ value: Double?) -> String {
+        guard let value else { return "" }
+        return value.formatted(
+            .number
+                .locale(Locale(identifier: "en_US_POSIX"))
+                .precision(.fractionLength(0...3))
+        )
     }
 
     private var templateBackupText: String {
