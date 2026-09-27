@@ -4,7 +4,6 @@ import Charts
 import AVKit
 import UIKit
 import UniformTypeIdentifiers
-import ActivityKit
 
 // MARK: - Theme
 
@@ -53,11 +52,6 @@ enum AppPreferences {
     static var autoCollapseCompleted: Bool {
         if UserDefaults.standard.object(forKey: "autoCollapseCompleted") == nil { return true }
         return UserDefaults.standard.bool(forKey: "autoCollapseCompleted")
-    }
-
-    static var liveActivityRestTimer: Bool {
-        if UserDefaults.standard.object(forKey: "liveActivityRestTimer") == nil { return true }
-        return UserDefaults.standard.bool(forKey: "liveActivityRestTimer")
     }
 
     static var progressionStepKg: Double {
@@ -240,72 +234,6 @@ enum Haptics {
     static func success() {
         guard AppPreferences.hapticsEnabled else { return }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-    }
-}
-
-@MainActor
-final class RestActivityController {
-    static let shared = RestActivityController()
-
-    private var activity: Activity<RestTimerAttributes>?
-
-    func start(workoutTitle: String, exerciseName: String, seconds: Int) {
-        guard AppPreferences.liveActivityRestTimer,
-              seconds > 0,
-              ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-
-        Task {
-            await end()
-
-            let attributes = RestTimerAttributes(workoutTitle: workoutTitle)
-            let state = RestTimerAttributes.ContentState(
-                endDate: Date().addingTimeInterval(TimeInterval(seconds)),
-                totalSeconds: seconds,
-                exerciseName: exerciseName
-            )
-
-            do {
-                activity = try Activity.request(
-                    attributes: attributes,
-                    content: ActivityContent(state: state, staleDate: state.endDate),
-                    pushType: nil
-                )
-            } catch {
-                activity = nil
-            }
-        }
-    }
-
-    func update(exerciseName: String, remaining: Int) {
-        guard AppPreferences.liveActivityRestTimer,
-              let activity,
-              remaining > 0 else { return }
-
-        let state = RestTimerAttributes.ContentState(
-            endDate: Date().addingTimeInterval(TimeInterval(remaining)),
-            totalSeconds: remaining,
-            exerciseName: exerciseName
-        )
-
-        Task {
-            await activity.update(
-                ActivityContent(state: state, staleDate: state.endDate)
-            )
-        }
-    }
-
-    func end() async {
-        guard let activity else { return }
-        let finalState = RestTimerAttributes.ContentState(
-            endDate: .now,
-            totalSeconds: 0,
-            exerciseName: ""
-        )
-        await activity.end(
-            ActivityContent(state: finalState, staleDate: .now),
-            dismissalPolicy: .immediate
-        )
-        self.activity = nil
     }
 }
 
@@ -1231,7 +1159,6 @@ struct BackupSettings: Codable {
     var defaultRestSeconds: Int
     var autoRestTimer: Bool
     var autoCollapseCompleted: Bool
-    var liveActivityRestTimer: Bool
     var progressionStepKg: Double
     var activeGymID: String
     var separateRecordsByGym: Bool
@@ -2375,7 +2302,7 @@ struct StartWorkoutView: View {
 
                         HStack(spacing: 8) {
                             Label(L10n.text("Cardio v2", "Cardio v2"), systemImage: "figure.run")
-                            Label(L10n.text("Live Timer", "Live Timer"), systemImage: "timer")
+                            Label(L10n.text("Rest Timer", "Rusttimer"), systemImage: "timer")
                             Label(L10n.text("Smart Cards", "Slimme kaarten"), systemImage: "rectangle.stack.fill")
                         }
                         .font(.caption2.bold())
@@ -3718,7 +3645,6 @@ struct ActiveWorkoutView: View {
                 if remaining == 0 {
                     restEndDate = nil
                     Haptics.success()
-                    Task { await RestActivityController.shared.end() }
                 }
             }
             .confirmationDialog(
@@ -3886,11 +3812,6 @@ struct ActiveWorkoutView: View {
         restExerciseName = exerciseName
         restEndDate = Date().addingTimeInterval(TimeInterval(seconds))
 
-        RestActivityController.shared.start(
-            workoutTitle: session.title,
-            exerciseName: exerciseName,
-            seconds: seconds
-        )
     }
 
     private func adjustRest(by seconds: Int) {
@@ -3899,10 +3820,6 @@ struct ActiveWorkoutView: View {
         restEndDate = newEnd
         restRemaining = max(0, Int(ceil(newEnd.timeIntervalSinceNow)))
         restOriginal = max(restOriginal, restRemaining)
-        RestActivityController.shared.update(
-            exerciseName: restExerciseName,
-            remaining: restRemaining
-        )
         Haptics.light()
     }
 
@@ -3911,7 +3828,6 @@ struct ActiveWorkoutView: View {
         restOriginal = 0
         restEndDate = nil
         restExerciseName = ""
-        Task { await RestActivityController.shared.end() }
         Haptics.light()
     }
 
@@ -8258,7 +8174,6 @@ struct SettingsView: View {
     @AppStorage("defaultRestSeconds") private var defaultRestSeconds = 90
     @AppStorage("autoRestTimer") private var autoRestTimer = true
     @AppStorage("autoCollapseCompleted") private var autoCollapseCompleted = true
-    @AppStorage("liveActivityRestTimer") private var liveActivityRestTimer = true
     @AppStorage("progressionStepKg") private var progressionStepKg = 2.5
     @AppStorage("activeGymID") private var activeGymID = GymProfileStore.defaultID
     @AppStorage("separateRecordsByGym") private var separateRecordsByGym = true
@@ -8273,7 +8188,7 @@ struct SettingsView: View {
 
     private var appVersionDisplay: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.0"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "2"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "3"
         return "\(version) (\(build))"
     }
 
@@ -8444,17 +8359,6 @@ struct SettingsView: View {
                     Toggle(L10n.text("Automatic rest timer", "Automatische rusttimer"), isOn: $autoRestTimer)
 
                     if autoRestTimer {
-                        Toggle(
-                            L10n.text("Lock Screen / Dynamic Island timer", "Timer op vergrendelscherm / Dynamic Island"),
-                            isOn: $liveActivityRestTimer
-                        )
-
-                        Text(L10n.text(
-                            "When supported by iOS, the rest countdown stays visible outside RepForge.",
-                            "Wanneer iOS dit ondersteunt blijft de rusttimer zichtbaar buiten RepForge."
-                        ))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
 
                         Stepper(
                             "\(L10n.text("Default rest", "Standaard rust")): \(defaultRestSeconds)s",
@@ -8490,13 +8394,18 @@ struct SettingsView: View {
                     )
                     Label(
                         L10n.text(
-                            "0.2.0 includes the redesigned workout UI, cardio metrics, collapsible exercise cards and Live Activity rest timer.",
-                            "0.2.0 bevat de vernieuwde trainingsinterface, cardiometingen, inklapbare oefenkaarten en Live Activity-rusttimer."
+                            "0.2.0 includes the redesigned workout UI, cardio metrics, collapsible exercise cards and the improved rest timer.",
+                            "0.2.0 bevat de vernieuwde trainingsinterface, cardiometingen, inklapbare oefenkaarten en de verbeterde rusttimer."
                         ),
                         systemImage: "sparkles"
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                    LabeledContent(
+                        L10n.text("Exercise media", "Oefenmedia"),
+                        value: "Free Exercise DB"
+                    )
                 }
 
                 Section(L10n.text("Storage & export", "Opslag & export")) {
@@ -8533,10 +8442,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 }
 
-                Section(L10n.text("About", "Over")) {
-                    LabeledContent("RepForge", value: "0.1.0")
-                    LabeledContent(L10n.text("Exercise media", "Oefenmedia"), value: "Free Exercise DB")
-                }
             }
             .scrollContentBackground(.hidden)
             .background(RFTheme.bg)
@@ -8657,7 +8562,6 @@ struct SettingsView: View {
             defaultRestSeconds: defaultRestSeconds,
             autoRestTimer: autoRestTimer,
             autoCollapseCompleted: autoCollapseCompleted,
-            liveActivityRestTimer: liveActivityRestTimer,
             progressionStepKg: progressionStepKg,
             activeGymID: activeGymID,
             separateRecordsByGym: separateRecordsByGym,
@@ -8809,7 +8713,6 @@ struct SettingsView: View {
         defaultRestSeconds = payload.settings.defaultRestSeconds
         autoRestTimer = payload.settings.autoRestTimer
         autoCollapseCompleted = payload.settings.autoCollapseCompleted
-        liveActivityRestTimer = payload.settings.liveActivityRestTimer
         progressionStepKg = payload.settings.progressionStepKg
         activeGymID = payload.settings.activeGymID
         separateRecordsByGym = payload.settings.separateRecordsByGym
