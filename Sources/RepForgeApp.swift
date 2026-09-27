@@ -2525,7 +2525,7 @@ struct ExerciseDetailView: View {
                 HStack {
                     VStack(alignment: .leading) {
                         Text(p.date.formatted(date: .abbreviated, time: .omitted)).bold()
-                        Text("Volume \(Int(p.volume)) kg").font(.caption).foregroundStyle(.secondary)
+                        Text("\(L10n.text("Volume", "Volume")) \(Int(AppPreferences.displayVolume(p.volume))) \(AppPreferences.weightLabel)").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Text("\(AppPreferences.displayWeight(p.weight).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)")
@@ -2547,9 +2547,9 @@ struct ExerciseDetailView: View {
             Text("Best weight").font(.title3.bold())
             Chart {
                 ForEach(Array(performances.enumerated()), id: \.offset) { _, p in
-                    LineMark(x: .value("Date", p.date), y: .value("Weight", p.weight))
+                    LineMark(x: .value("Date", p.date), y: .value("Weight", AppPreferences.displayWeight(p.weight)))
                         .interpolationMethod(.catmullRom)
-                    PointMark(x: .value("Date", p.date), y: .value("Weight", p.weight))
+                    PointMark(x: .value("Date", p.date), y: .value("Weight", AppPreferences.displayWeight(p.weight)))
                 }
             }
             .frame(height: 220)
@@ -2557,10 +2557,10 @@ struct ExerciseDetailView: View {
             Text("Estimated 1RM").font(.title3.bold()).padding(.top, 8)
             Chart {
                 ForEach(Array(performances.enumerated()), id: \.offset) { _, p in
-                    AreaMark(x: .value("Date", p.date), y: .value("1RM", p.oneRM))
+                    AreaMark(x: .value("Date", p.date), y: .value("1RM", AppPreferences.displayWeight(p.oneRM)))
                         .interpolationMethod(.catmullRom)
                         .foregroundStyle(RFTheme.accent.opacity(0.22))
-                    LineMark(x: .value("Date", p.date), y: .value("1RM", p.oneRM))
+                    LineMark(x: .value("Date", p.date), y: .value("1RM", AppPreferences.displayWeight(p.oneRM)))
                         .interpolationMethod(.catmullRom)
                         .foregroundStyle(RFTheme.accent)
                 }
