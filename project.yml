@@ -1,0 +1,37 @@
+name: RepForge
+options:
+  bundleIdPrefix: com.xflipperkast
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    SWIFT_VERSION: 5.10
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+    DEVELOPMENT_TEAM: ""
+targets:
+  RepForge:
+    type: application
+    platform: iOS
+    sources:
+      - path: RepForge
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.xflipperkast.repforge
+        INFOPLIST_FILE: RepForge/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_MACCATALYST: NO
+    scheme:
+      testTargets:
+        - RepForgeTests
+  RepForgeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: RepForge
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.xflipperkast.repforge.tests
