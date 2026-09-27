@@ -1410,7 +1410,8 @@ struct ExercisePickerView: View {
                     }
                 }
             }
-            .searchable(text: $search)
+            .searchable(text: $search, prompt: "Search exercises")
+            .scrollDismissesKeyboard(.interactively)
             .scrollContentBackground(.hidden)
             .background(RFTheme.bg)
             .navigationTitle("Exercises")
@@ -1428,7 +1429,37 @@ struct ExercisePickerView: View {
                 }
                 .background(.ultraThinMaterial)
             }
+            .safeAreaInset(edge: .bottom) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(selectedIDs.isEmpty ? "No exercises selected" : "\(selectedIDs.count) selected")
+                            .font(.caption.bold())
+                        Text("Tap exercises to add or remove them")
+                            .font(.caption2)
+                            .foregroundStyle(RFTheme.muted)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text(selectedIDs.isEmpty ? "Done" : "Add \(selectedIDs.count)")
+                            .font(.headline)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(RFTheme.accent)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial)
+            }
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }.bold()
                 }
