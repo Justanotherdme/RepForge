@@ -2352,6 +2352,44 @@ struct StartWorkoutView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(alignment: .center) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("RepForge")
+                                    .font(.system(size: 34, weight: .black, design: .rounded))
+                                Text(L10n.text("Train. Track. Progress.", "Train. Volg. Groei."))
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(RFTheme.muted)
+                            }
+
+                            Spacer()
+
+                            Text("0.2.0")
+                                .font(.caption.bold())
+                                .foregroundStyle(RFTheme.accent)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(RFTheme.accent.opacity(0.14))
+                                .clipShape(Capsule())
+                        }
+
+                        HStack(spacing: 8) {
+                            Label(L10n.text("Cardio v2", "Cardio v2"), systemImage: "figure.run")
+                            Label(L10n.text("Live Timer", "Live Timer"), systemImage: "timer")
+                            Label(L10n.text("Smart Cards", "Slimme kaarten"), systemImage: "rectangle.stack.fill")
+                        }
+                        .font(.caption2.bold())
+                        .foregroundStyle(RFTheme.muted)
+                    }
+                    .padding(16)
+                    .background(RFTheme.heroGradient)
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24)
+                            .stroke(RFTheme.cardBorder)
+                    )
+                    .shadow(color: Color.black.opacity(0.10), radius: 12, y: 5)
+
                     HStack {
                         Text(L10n.text("Quick Start", "Snel starten"))
                             .font(.title2.bold())
