@@ -3013,37 +3013,84 @@ struct ProgramDayEditorView: View {
 struct ProgramExerciseEditorRow: View {
     @Binding var item: ProgramExercise
 
+    private var isCardio: Bool {
+        ExerciseCatalog.findByName(item.name)?.movement == "cardio"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(item.name)
-                .font(.headline)
+            HStack {
+                Text(item.name)
+                    .font(.headline)
+
+                Spacer()
+
+                if isCardio {
+                    Label("Cardio", systemImage: "figure.run")
+                        .font(.caption2.bold())
+                        .foregroundStyle(RFTheme.accent)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(RFTheme.accent.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+            }
 
             HStack(spacing: 14) {
-                Stepper("Sets \(item.sets)", value: $item.sets, in: 1...10)
+                Stepper(
+                    isCardio
+                        ? "\(L10n.text("Intervals", "Intervallen")) \(item.sets)"
+                        : "\(L10n.text("Sets", "Sets")) \(item.sets)",
+                    value: $item.sets,
+                    in: 1...10
+                )
 
-                TextField("Reps", text: $item.reps)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 86)
-                    .multilineTextAlignment(.center)
+                if isCardio {
+                    Text(L10n.text("Time • Distance • Pace", "Tijd • Afstand • Tempo"))
+                        .font(.caption2.bold())
+                        .foregroundStyle(RFTheme.muted)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(RFTheme.field)
+                        .clipShape(Capsule())
+                } else {
+                    TextField(L10n.text("Reps", "Reps"), text: $item.reps)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 86)
+                        .multilineTextAlignment(.center)
+                }
             }
 
             HStack {
-                TextField("Note (optional)", text: Binding(
-                    get: { item.note ?? "" },
-                    set: { item.note = $0.isEmpty ? nil : $0 }
-                ))
+                TextField(
+                    L10n.text("Note (optional)", "Notitie (optioneel)"),
+                    text: Binding(
+                        get: { item.note ?? "" },
+                        set: { item.note = $0.isEmpty ? nil : $0 }
+                    )
+                )
                 .textFieldStyle(.roundedBorder)
 
-                TextField("SS", text: Binding(
-                    get: { item.superset ?? "" },
-                    set: { item.superset = $0.isEmpty ? nil : $0.uppercased() }
-                ))
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 62)
-                .multilineTextAlignment(.center)
+                if !isCardio {
+                    TextField(
+                        "SS",
+                        text: Binding(
+                            get: { item.superset ?? "" },
+                            set: { item.superset = $0.isEmpty ? nil : $0.uppercased() }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 62)
+                    .multilineTextAlignment(.center)
+                }
             }
         }
         .padding(.vertical, 5)
+        .onAppear {
+            if isCardio && item.reps != "cardio" {
+                item.reps = "cardio"
+            }
+        }
     }
 }
 
@@ -3185,7 +3232,11 @@ struct TemplateEditorView: View {
             let existing = template.plannedExercises ??
                 template.exerciseIDs.compactMap { id in
                     guard let exercise = ExerciseCatalog.find(id) else { return nil }
-                    return ProgramExercise(exercise.name, 3, "8–12")
+                    return ProgramExercise(
+                        exercise.name,
+                        exercise.movement == "cardio" ? 1 : 3,
+                        exercise.movement == "cardio" ? "cardio" : "8–12"
+                    )
                 }
             _items = State(initialValue: existing)
         } else if let prefill {
@@ -3273,7 +3324,13 @@ struct TemplateEditorView: View {
         for id in pickerIDs {
             guard let exercise = ExerciseCatalog.find(id),
                   !existing.contains(exercise.name) else { continue }
-            items.append(ProgramExercise(exercise.name, 3, "8–12"))
+            items.append(
+                ProgramExercise(
+                    exercise.name,
+                    exercise.movement == "cardio" ? 1 : 3,
+                    exercise.movement == "cardio" ? "cardio" : "8–12"
+                )
+            )
         }
         pickerIDs = []
     }
