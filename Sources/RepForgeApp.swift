@@ -1289,6 +1289,15 @@ struct ProgramDayEditorView: View {
         }
     }
 
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+    }
+
     private func addPickedExercises() {
         let existing = Set(draft.exercises.map(\.name))
         for id in pickerIDs {
@@ -1654,6 +1663,7 @@ struct ActiveWorkoutView: View {
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(RFTheme.bg)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1662,6 +1672,14 @@ struct ActiveWorkoutView: View {
                     } label: {
                         Image(systemName: "chevron.down")
                     }
+                }
+
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        dismissKeyboard()
+                    }
+                    .bold()
                 }
             }
             .confirmationDialog("Finish this workout?", isPresented: $showFinishConfirm) {
@@ -1860,6 +1878,12 @@ struct WorkoutSetRow: View {
 
     @State private var dragOffset: CGFloat = 0
     @State private var restingOffset: CGFloat = 0
+    @State private var dragAxis: SwipeAxis?
+
+    private enum SwipeAxis {
+        case horizontal
+        case vertical
+    }
 
     private let deleteWidth: CGFloat = 78
 
@@ -1890,29 +1914,29 @@ struct WorkoutSetRow: View {
                 .background(RFTheme.surface)
                 .offset(x: dragOffset)
                 .contentShape(Rectangle())
-                .highPriorityGesture(
-                    DragGesture(minimumDistance: 12)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 14)
                         .onChanged { value in
                             guard canDelete else { return }
 
                             let horizontal = value.translation.width
                             let vertical = value.translation.height
-                            guard abs(horizontal) > abs(vertical) else { return }
+
+                            if dragAxis == nil,
+                               max(abs(horizontal), abs(vertical)) > 10 {
+                                dragAxis = abs(horizontal) > abs(vertical) * 1.20
+                                    ? .horizontal
+                                    : .vertical
+                            }
+
+                            guard dragAxis == .horizontal else { return }
 
                             let proposed = restingOffset + horizontal
                             dragOffset = min(0, max(-deleteWidth * 1.45, proposed))
                         }
-                        .onEnded { value in
-                            guard canDelete else { return }
-
-                            let horizontal = value.translation.width
-                            let vertical = value.translation.height
-                            guard abs(horizontal) > abs(vertical) else {
-                                withAnimation(.snappy) {
-                                    dragOffset = restingOffset
-                                }
-                                return
-                            }
+                        .onEnded { _ in
+                            defer { dragAxis = nil }
+                            guard canDelete, dragAxis == .horizontal else { return }
 
                             if dragOffset < -(deleteWidth * 1.15) {
                                 withAnimation(.easeOut(duration: 0.16)) {
