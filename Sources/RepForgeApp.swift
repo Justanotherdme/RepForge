@@ -7497,6 +7497,8 @@ struct SettingsView: View {
     @AppStorage("defaultSets") private var defaultSets = 3
     @AppStorage("defaultRestSeconds") private var defaultRestSeconds = 90
     @AppStorage("autoRestTimer") private var autoRestTimer = true
+    @AppStorage("autoCollapseCompleted") private var autoCollapseCompleted = true
+    @AppStorage("liveActivityRestTimer") private var liveActivityRestTimer = true
     @AppStorage("progressionStepKg") private var progressionStepKg = 2.5
     @AppStorage("activeGymID") private var activeGymID = GymProfileStore.defaultID
     @AppStorage("separateRecordsByGym") private var separateRecordsByGym = true
@@ -7510,7 +7512,7 @@ struct SettingsView: View {
     @State private var backupMessage: String?
 
     private var workoutCSV: String {
-        var rows = ["date,workout,exercise,set,type,weight_kg,reps,rpe,rir,note"]
+        var rows = ["date,workout,exercise,set,type,weight_kg,reps,duration_seconds,distance_km,incline_percent,calories,avg_hr,rpe,rir,note"]
         for session in exportSessions where session.endedAt != nil {
             for log in session.exercises.sorted(by: { $0.order < $1.order }) {
                 let exerciseName = ExerciseCatalog.find(log.exerciseID)?.name ?? log.exerciseID
@@ -7523,6 +7525,11 @@ struct SettingsView: View {
                         csv(set.setType),
                         set.weightKg.formatted(.number.locale(Locale(identifier: "en_US_POSIX")).precision(.fractionLength(0...3))),
                         "\(set.reps)",
+                        set.durationSeconds.map { String($0) } ?? "",
+                        set.distanceKm.map { String($0) } ?? "",
+                        set.inclinePercent.map { String($0) } ?? "",
+                        set.calories.map { String($0) } ?? "",
+                        set.averageHeartRate.map { String($0) } ?? "",
                         set.rpe.map { String($0) } ?? "",
                         set.rir.map { String($0) } ?? "",
                         csv(set.note ?? "")
@@ -7642,9 +7649,22 @@ struct SettingsView: View {
                     )
 
                     Toggle(L10n.text("Show previous sets", "Vorige sets tonen"), isOn: $showPreviousSets)
+                    Toggle(L10n.text("Auto-collapse completed exercises", "Voltooide oefeningen automatisch inklappen"), isOn: $autoCollapseCompleted)
                     Toggle(L10n.text("Automatic rest timer", "Automatische rusttimer"), isOn: $autoRestTimer)
 
                     if autoRestTimer {
+                        Toggle(
+                            L10n.text("Lock Screen / Dynamic Island timer", "Timer op vergrendelscherm / Dynamic Island"),
+                            isOn: $liveActivityRestTimer
+                        )
+
+                        Text(L10n.text(
+                            "When supported by iOS, the rest countdown stays visible outside RepForge.",
+                            "Wanneer iOS dit ondersteunt blijft de rusttimer zichtbaar buiten RepForge."
+                        ))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
                         Stepper(
                             "\(L10n.text("Default rest", "Standaard rust")): \(defaultRestSeconds)s",
                             value: $defaultRestSeconds,
@@ -7785,7 +7805,12 @@ struct SettingsView: View {
                                 setTypeRaw: set.setTypeRaw,
                                 rpe: set.rpe,
                                 rir: set.rir,
-                                note: set.note
+                                note: set.note,
+                                durationSeconds: set.durationSeconds,
+                                distanceKm: set.distanceKm,
+                                inclinePercent: set.inclinePercent,
+                                calories: set.calories,
+                                averageHeartRate: set.averageHeartRate
                             )
                         }
                     )
@@ -7824,6 +7849,8 @@ struct SettingsView: View {
             defaultSets: defaultSets,
             defaultRestSeconds: defaultRestSeconds,
             autoRestTimer: autoRestTimer,
+            autoCollapseCompleted: autoCollapseCompleted,
+            liveActivityRestTimer: liveActivityRestTimer,
             progressionStepKg: progressionStepKg,
             activeGymID: activeGymID,
             separateRecordsByGym: separateRecordsByGym,
@@ -7906,7 +7933,12 @@ struct SettingsView: View {
                         setTypeRaw: setDTO.setTypeRaw,
                         rpe: setDTO.rpe,
                         rir: setDTO.rir,
-                        note: setDTO.note
+                        note: setDTO.note,
+                        durationSeconds: setDTO.durationSeconds,
+                        distanceKm: setDTO.distanceKm,
+                        inclinePercent: setDTO.inclinePercent,
+                        calories: setDTO.calories,
+                        averageHeartRate: setDTO.averageHeartRate
                     )
                     set.id = setDTO.id
                     set.completedAt = setDTO.completedAt
@@ -7969,6 +8001,8 @@ struct SettingsView: View {
         defaultSets = payload.settings.defaultSets
         defaultRestSeconds = payload.settings.defaultRestSeconds
         autoRestTimer = payload.settings.autoRestTimer
+        autoCollapseCompleted = payload.settings.autoCollapseCompleted
+        liveActivityRestTimer = payload.settings.liveActivityRestTimer
         progressionStepKg = payload.settings.progressionStepKg
         activeGymID = payload.settings.activeGymID
         separateRecordsByGym = payload.settings.separateRecordsByGym
