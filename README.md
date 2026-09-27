@@ -4,7 +4,7 @@ Local-first iOS strength-training log built with SwiftUI + SwiftData + Swift Cha
 
 ## Current features
 
-- Workout templates with a built-in exercise catalog
+- Workout templates with a large built-in exercise catalog
 - Active workout logging for weight/reps and completed sets
 - Previous-set lookup and per-exercise best weight
 - Full completed-workout history and session volume
@@ -23,7 +23,7 @@ open RepForge.xcodeproj
 
 ## Windows workflow
 
-Push to `main` or manually run **Actions → iOS build → Run workflow**. Download the `RepForge-unsigned-ipa` artifact after the build completes.
+Every push to `main` triggers **Actions → iOS build**. When the run succeeds, download the `RepForge-unsigned-ipa` artifact.
 
 An unsigned IPA must be signed before normal installation on an iPhone. The project can later be configured for App Store/TestFlight or certificate-based CI signing.
 
