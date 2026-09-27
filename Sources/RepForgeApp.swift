@@ -53,6 +53,36 @@ enum AppPreferences {
         return value == 0 ? 2.5 : max(0.25, min(20, value))
     }
 
+    static var activeGymID: String {
+        UserDefaults.standard.string(forKey: "activeGymID") ?? GymProfileStore.defaultID
+    }
+
+    static var separateRecordsByGym: Bool {
+        if UserDefaults.standard.object(forKey: "separateRecordsByGym") == nil { return true }
+        return UserDefaults.standard.bool(forKey: "separateRecordsByGym")
+    }
+
+    static var prScope: String {
+        UserDefaults.standard.string(forKey: "prScope") ?? "lifetime"
+    }
+
+    static var seasonStartDate: Date {
+        let value = UserDefaults.standard.double(forKey: "seasonStartDate")
+        if value > 0 { return Date(timeIntervalSince1970: value) }
+        return Calendar.current.date(byAdding: .month, value: -3, to: .now) ?? .now
+    }
+
+    static var prStartDate: Date? {
+        switch prScope {
+        case "year":
+            return Calendar.current.dateInterval(of: .year, for: .now)?.start
+        case "season":
+            return seasonStartDate
+        default:
+            return nil
+        }
+    }
+
     static var isImperial: Bool { measurementSystem == "imperial" }
     static var weightLabel: String { isImperial ? "lb" : "kg" }
     static var heightLabel: String { isImperial ? "in" : "cm" }
@@ -179,6 +209,79 @@ enum Haptics {
     }
 }
 
+// MARK: - Gym profiles
+
+struct GymProfile: Codable, Identifiable, Hashable {
+    var id: String
+    var name: String
+    var note: String
+}
+
+enum GymProfileStore {
+    static let defaultID = "gym-default"
+    private static let key = "repforge.gyms.v1"
+
+    static func load() -> [GymProfile] {
+        if let data = UserDefaults.standard.data(forKey: key),
+           let decoded = try? JSONDecoder().decode([GymProfile].self, from: data),
+           !decoded.isEmpty {
+            return decoded
+        }
+        return [GymProfile(id: defaultID, name: L10n.text("Main Gym", "Hoofdgym"), note: "")]
+    }
+
+    static func save(_ gyms: [GymProfile]) {
+        guard !gyms.isEmpty,
+              let data = try? JSONEncoder().encode(gyms) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    static func profile(id: String?) -> GymProfile {
+        let resolved = id ?? defaultID
+        return load().first(where: { $0.id == resolved })
+            ?? load().first
+            ?? GymProfile(id: defaultID, name: L10n.text("Main Gym", "Hoofdgym"), note: "")
+    }
+
+    static func add(name: String, note: String = "") -> GymProfile {
+        var gyms = load()
+        let gym = GymProfile(
+            id: "gym-\(UUID().uuidString)",
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? L10n.text("New Gym", "Nieuwe gym")
+                : name.trimmingCharacters(in: .whitespacesAndNewlines),
+            note: note
+        )
+        gyms.append(gym)
+        save(gyms)
+        return gym
+    }
+
+    static func update(_ gym: GymProfile) {
+        var gyms = load()
+        if let index = gyms.firstIndex(where: { $0.id == gym.id }) {
+            gyms[index] = gym
+        } else {
+            gyms.append(gym)
+        }
+        save(gyms)
+    }
+
+    static func delete(id: String) {
+        guard id != defaultID else { return }
+        var gyms = load()
+        gyms.removeAll { $0.id == id }
+        save(gyms)
+        if AppPreferences.activeGymID == id {
+            UserDefaults.standard.set(defaultID, forKey: "activeGymID")
+        }
+    }
+
+    static func sessionGymID(_ session: WorkoutSession) -> String {
+        session.gymID ?? defaultID
+    }
+}
+
 // MARK: - Exercise catalog
 
 struct ExerciseDefinition: Identifiable, Hashable {
@@ -215,6 +318,173 @@ struct ExerciseDefinition: Identifiable, Hashable {
 
     var cues: [String] {
         ["Controlled tempo", "Stable setup", "Pain-free range", "Progress load gradually"]
+    }
+
+    var detailedMuscles: [MuscleContribution] {
+        MuscleMap.contributions(for: self)
+    }
+}
+
+struct MuscleContribution: Hashable, Identifiable {
+    var id: String { muscle }
+    let muscle: String
+    let weight: Double
+    let side: BodySide
+
+    enum BodySide: String, Hashable {
+        case front, back
+    }
+}
+
+enum MuscleMap {
+    static let trackedMuscles = [
+        "Upper Chest", "Mid Chest", "Lower Chest",
+        "Front Delts", "Side Delts", "Rear Delts",
+        "Lats", "Upper Back", "Traps", "Spinal Erectors",
+        "Biceps", "Brachialis", "Triceps", "Forearms",
+        "Quadriceps", "Hamstrings", "Glutes", "Adductors",
+        "Calves", "Abs", "Obliques", "Hip Flexors"
+    ]
+
+    static func contributions(for exercise: ExerciseDefinition) -> [MuscleContribution] {
+        let name = exercise.name.lowercased()
+        var result: [MuscleContribution] = []
+
+        func add(_ muscle: String, _ weight: Double = 1, _ side: MuscleContribution.BodySide) {
+            if let index = result.firstIndex(where: { $0.muscle == muscle }) {
+                let existing = result[index]
+                result[index] = MuscleContribution(muscle: muscle, weight: max(existing.weight, weight), side: existing.side)
+            } else {
+                result.append(MuscleContribution(muscle: muscle, weight: weight, side: side))
+            }
+        }
+
+        switch exercise.muscle {
+        case "Chest":
+            if name.contains("incline") {
+                add("Upper Chest", 1, .front)
+            } else if name.contains("decline") || name.contains("dip") {
+                add("Lower Chest", 1, .front)
+            } else {
+                add("Mid Chest", 1, .front)
+            }
+            if exercise.movement == "press" {
+                add("Triceps", 0.5, .back)
+                add("Front Delts", 0.35, .front)
+            }
+
+        case "Back":
+            if name.contains("pulldown") || name.contains("pull up") || name.contains("chin up") || name.contains("straight arm") {
+                add("Lats", 1, .back)
+                add("Biceps", 0.4, .front)
+            } else if name.contains("row") {
+                add("Upper Back", 1, .back)
+                add("Lats", 0.55, .back)
+                add("Rear Delts", 0.35, .back)
+                add("Biceps", 0.35, .front)
+            } else if name.contains("shrug") {
+                add("Traps", 1, .back)
+            } else {
+                add("Spinal Erectors", 0.8, .back)
+                add("Upper Back", 0.5, .back)
+            }
+
+        case "Shoulders":
+            if name.contains("lateral") {
+                add("Side Delts", 1, .front)
+            } else if name.contains("rear") || name.contains("reverse pec") || name.contains("face pull") {
+                add("Rear Delts", 1, .back)
+                add("Upper Back", 0.45, .back)
+            } else if name.contains("front raise") {
+                add("Front Delts", 1, .front)
+            } else if name.contains("shrug") {
+                add("Traps", 1, .back)
+            } else {
+                add("Front Delts", 1, .front)
+                add("Side Delts", 0.6, .front)
+                add("Triceps", 0.45, .back)
+            }
+
+        case "Biceps":
+            if name.contains("hammer") {
+                add("Brachialis", 1, .front)
+                add("Biceps", 0.7, .front)
+                add("Forearms", 0.4, .front)
+            } else if name.contains("reverse") {
+                add("Forearms", 1, .front)
+                add("Brachialis", 0.7, .front)
+            } else {
+                add("Biceps", 1, .front)
+                add("Brachialis", 0.25, .front)
+            }
+
+        case "Triceps":
+            add("Triceps", 1, .back)
+            if exercise.movement == "press" { add("Mid Chest", 0.35, .front) }
+
+        case "Forearms":
+            add("Forearms", 1, .front)
+            add("Brachialis", 0.45, .front)
+
+        case "Quadriceps":
+            add("Quadriceps", 1, .front)
+            if name.contains("squat") || name.contains("lunge") || name.contains("press") || name.contains("step") {
+                add("Glutes", 0.45, .back)
+            }
+            if name.contains("lunge") || name.contains("split") {
+                add("Adductors", 0.25, .front)
+            }
+
+        case "Hamstrings":
+            add("Hamstrings", 1, .back)
+            if exercise.movement == "hinge" {
+                add("Glutes", 0.65, .back)
+                add("Spinal Erectors", 0.35, .back)
+            }
+
+        case "Glutes":
+            add("Glutes", 1, .back)
+            if name.contains("thrust") || name.contains("bridge") { add("Hamstrings", 0.3, .back) }
+
+        case "Adductors":
+            add("Adductors", 1, .front)
+
+        case "Calves":
+            add("Calves", 1, .back)
+
+        case "Core":
+            if name.contains("side") || name.contains("russian") || name.contains("bicycle") {
+                add("Obliques", 1, .front)
+                add("Abs", 0.6, .front)
+            } else if name.contains("leg raise") || name.contains("captain") {
+                add("Abs", 1, .front)
+                add("Hip Flexors", 0.55, .front)
+            } else {
+                add("Abs", 1, .front)
+            }
+
+        case "Full Body":
+            if name.contains("deadlift") || name.contains("swing") {
+                add("Glutes", 1, .back)
+                add("Hamstrings", 0.8, .back)
+                add("Spinal Erectors", 0.6, .back)
+                add("Traps", 0.35, .back)
+            } else {
+                add("Quadriceps", 0.7, .front)
+                add("Glutes", 0.7, .back)
+                add("Front Delts", 0.55, .front)
+                add("Triceps", 0.4, .back)
+            }
+
+        default:
+            if exercise.movement == "cardio" {
+                add("Quadriceps", 0.35, .front)
+                add("Glutes", 0.25, .back)
+                add("Calves", 0.25, .back)
+            }
+        }
+
+        return result
     }
 }
 
@@ -678,15 +948,23 @@ final class WorkoutSession {
     var startedAt: Date
     var endedAt: Date?
     var note: String?
+    var gymID: String?
     @Relationship(deleteRule: .cascade)
     var exercises: [ExerciseLog]
 
-    init(title: String, startedAt: Date = .now, exercises: [ExerciseLog] = [], note: String? = nil) {
+    init(
+        title: String,
+        startedAt: Date = .now,
+        exercises: [ExerciseLog] = [],
+        note: String? = nil,
+        gymID: String? = nil
+    ) {
         self.id = UUID()
         self.title = title
         self.startedAt = startedAt
         self.exercises = exercises
         self.note = note
+        self.gymID = gymID
     }
 
     var duration: TimeInterval {
@@ -803,8 +1081,31 @@ enum Metrics {
         sessions.filter { $0.endedAt != nil }
     }
 
-    static func performances(exerciseID: String, sessions: [WorkoutSession]) -> [(date: Date, weight: Double, oneRM: Double, volume: Double)] {
-        completedSessions(sessions).compactMap { session in
+    static func scopedSessions(
+        _ sessions: [WorkoutSession],
+        gymID: String? = nil,
+        startDate: Date? = nil
+    ) -> [WorkoutSession] {
+        completedSessions(sessions).filter { session in
+            let gymMatches: Bool
+            if let gymID, AppPreferences.separateRecordsByGym {
+                gymMatches = GymProfileStore.sessionGymID(session) == gymID
+            } else {
+                gymMatches = true
+            }
+
+            let dateMatches = startDate.map { session.startedAt >= $0 } ?? true
+            return gymMatches && dateMatches
+        }
+    }
+
+    static func performances(
+        exerciseID: String,
+        sessions: [WorkoutSession],
+        gymID: String? = nil,
+        startDate: Date? = nil
+    ) -> [(date: Date, weight: Double, oneRM: Double, volume: Double)] {
+        scopedSessions(sessions, gymID: gymID, startDate: startDate).compactMap { session in
             let sets = session.exercises
                 .filter { $0.exerciseID == exerciseID }
                 .flatMap(\.sets)
@@ -818,23 +1119,159 @@ enum Metrics {
         .sorted { $0.date < $1.date }
     }
 
-    static func previousSets(exerciseID: String, sessions: [WorkoutSession]) -> [(Double, Int)] {
-        guard let latest = completedSessions(sessions)
+    static func previousSets(
+        exerciseID: String,
+        sessions: [WorkoutSession],
+        gymID: String? = nil
+    ) -> [(Double, Int)] {
+        guard let latest = scopedSessions(sessions, gymID: gymID)
             .filter({ $0.exercises.contains(where: { $0.exerciseID == exerciseID }) })
             .max(by: { ($0.endedAt ?? $0.startedAt) < ($1.endedAt ?? $1.startedAt) }),
               let log = latest.exercises.first(where: { $0.exerciseID == exerciseID })
         else { return [] }
-        return log.sets.filter(\.countsForPR).sorted { $0.order < $1.order }.map { ($0.weightKg, $0.reps) }
+
+        return log.sets
+            .filter(\.countsForPR)
+            .sorted { $0.order < $1.order }
+            .map { ($0.weightKg, $0.reps) }
     }
 
-    static func personalBest(exerciseID: String, sessions: [WorkoutSession]) -> Double {
-        performances(exerciseID: exerciseID, sessions: sessions).map(\.weight).max() ?? 0
+    static func personalBest(
+        exerciseID: String,
+        sessions: [WorkoutSession],
+        gymID: String? = nil,
+        startDate: Date? = nil
+    ) -> Double {
+        performances(
+            exerciseID: exerciseID,
+            sessions: sessions,
+            gymID: gymID,
+            startDate: startDate
+        ).map(\.weight).max() ?? 0
     }
 
     static func estimated1RM(weight: Double, reps: Int) -> Double {
         guard weight > 0, reps > 0 else { return 0 }
         if reps == 1 { return weight }
         return weight * (1 + Double(reps) / 30.0)
+    }
+}
+
+struct MuscleVolumeEntry: Identifiable {
+    let muscle: String
+    let sets: Double
+    var id: String { muscle }
+}
+
+struct MuscleRecoveryEntry: Identifiable {
+    let muscle: String
+    let recovery: Double
+    let lastTrained: Date?
+    let recentSets: Double
+    var id: String { muscle }
+
+    var status: String {
+        if lastTrained == nil { return L10n.text("No recent data", "Geen recente data") }
+        if recovery >= 0.85 { return L10n.text("Ready", "Hersteld") }
+        if recovery >= 0.55 { return L10n.text("Mostly recovered", "Grotendeels hersteld") }
+        return L10n.text("Recovering", "Herstellend")
+    }
+}
+
+enum MuscleAnalytics {
+    static func sessionVolume(_ session: WorkoutSession) -> [MuscleVolumeEntry] {
+        volume(sessions: [session], since: .distantPast)
+    }
+
+    static func weeklyVolume(
+        sessions: [WorkoutSession],
+        gymID: String? = nil,
+        weeksBack: Int = 0
+    ) -> [MuscleVolumeEntry] {
+        let calendar = Calendar.current
+        guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: .now)?.start,
+              let start = calendar.date(byAdding: .weekOfYear, value: -weeksBack, to: thisWeek),
+              let end = calendar.date(byAdding: .day, value: 7, to: start) else {
+            return []
+        }
+
+        let scoped = sessions.filter { session in
+            session.endedAt != nil &&
+            session.startedAt >= start &&
+            session.startedAt < end &&
+            (!AppPreferences.separateRecordsByGym || gymID == nil || GymProfileStore.sessionGymID(session) == gymID)
+        }
+
+        return volume(sessions: scoped, since: start)
+    }
+
+    static func volume(sessions: [WorkoutSession], since: Date) -> [MuscleVolumeEntry] {
+        var totals: [String: Double] = [:]
+
+        for session in sessions where session.startedAt >= since && session.endedAt != nil {
+            for log in session.exercises {
+                guard let exercise = ExerciseCatalog.find(log.exerciseID) else { continue }
+                let workingSets = Double(log.sets.filter(\.countsForPR).count)
+                guard workingSets > 0 else { continue }
+
+                for contribution in exercise.detailedMuscles {
+                    totals[contribution.muscle, default: 0] += workingSets * contribution.weight
+                }
+            }
+        }
+
+        return totals
+            .map { MuscleVolumeEntry(muscle: $0.key, sets: $0.value) }
+            .sorted { $0.sets > $1.sets }
+    }
+
+    static func recovery(
+        sessions: [WorkoutSession],
+        gymID: String? = nil,
+        now: Date = .now
+    ) -> [MuscleRecoveryEntry] {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -10, to: now) ?? .distantPast
+        var lastDates: [String: Date] = [:]
+        var recentSets: [String: Double] = [:]
+
+        for session in sessions where session.endedAt != nil && session.startedAt >= cutoff {
+            if AppPreferences.separateRecordsByGym,
+               let gymID,
+               GymProfileStore.sessionGymID(session) != gymID {
+                continue
+            }
+
+            let date = session.endedAt ?? session.startedAt
+
+            for log in session.exercises {
+                guard let exercise = ExerciseCatalog.find(log.exerciseID) else { continue }
+                let count = Double(log.sets.filter(\.countsForPR).count)
+                guard count > 0 else { continue }
+
+                for contribution in exercise.detailedMuscles {
+                    let weighted = count * contribution.weight
+                    recentSets[contribution.muscle, default: 0] += weighted
+                    if date > (lastDates[contribution.muscle] ?? .distantPast) {
+                        lastDates[contribution.muscle] = date
+                    }
+                }
+            }
+        }
+
+        return MuscleMap.trackedMuscles.compactMap { muscle in
+            guard let last = lastDates[muscle] else { return nil }
+            let sets = recentSets[muscle, default: 0]
+            let hours = max(0, now.timeIntervalSince(last) / 3600)
+            let recoveryHours = min(84.0, 36.0 + min(48.0, sets * 2.0))
+            let score = min(1, hours / recoveryHours)
+            return MuscleRecoveryEntry(
+                muscle: muscle,
+                recovery: score,
+                lastTrained: last,
+                recentSets: sets
+            )
+        }
+        .sorted { $0.recovery < $1.recovery }
     }
 }
 
@@ -1229,6 +1666,38 @@ struct RootView: View {
 
 // MARK: - Workout home
 
+struct GymQuickPicker: View {
+    @Binding var activeGymID: String
+    @State private var refresh = UUID()
+
+    var body: some View {
+        Menu {
+            ForEach(GymProfileStore.load()) { gym in
+                Button {
+                    activeGymID = gym.id
+                    Haptics.light()
+                    refresh = UUID()
+                } label: {
+                    if gym.id == activeGymID {
+                        Label(gym.name, systemImage: "checkmark")
+                    } else {
+                        Text(gym.name)
+                    }
+                }
+            }
+        } label: {
+            Label(
+                GymProfileStore.profile(id: activeGymID).name,
+                systemImage: "mappin.and.ellipse"
+            )
+            .font(.caption.bold())
+            .lineLimit(1)
+        }
+        .id(refresh)
+        .buttonStyle(.bordered)
+    }
+}
+
 struct StartWorkoutView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \WorkoutTemplate.createdAt, order: .reverse) private var templates: [WorkoutTemplate]
@@ -1240,13 +1709,18 @@ struct StartWorkoutView: View {
     @State private var editingProgramDay: ProgramDay?
     @State private var activeSession: WorkoutSession?
     @State private var selectedProgramWeek = 1
+    @AppStorage("activeGymID") private var activeGymID = GymProfileStore.defaultID
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    Text("Quick Start")
-                        .font(.title2.bold())
+                    HStack {
+                        Text(L10n.text("Quick Start", "Snel starten"))
+                            .font(.title2.bold())
+                        Spacer()
+                        GymQuickPicker(activeGymID: $activeGymID)
+                    }
 
                     Button {
                         activeSession = createSession(title: "Workout", exerciseIDs: [])
@@ -1390,7 +1864,7 @@ struct StartWorkoutView: View {
                 sets: (0..<AppPreferences.defaultSets).map { WorkoutSet(order: $0) }
             )
         }
-        let session = WorkoutSession(title: title, exercises: logs)
+        let session = WorkoutSession(title: title, exercises: logs, gymID: activeGymID)
         context.insert(session)
         try? context.save()
         return session
@@ -1409,7 +1883,7 @@ struct StartWorkoutView: View {
                     sets: (0..<max(1, item.sets)).map { WorkoutSet(order: $0) }
                 )
             }
-            let session = WorkoutSession(title: template.name, exercises: logs)
+            let session = WorkoutSession(title: template.name, exercises: logs, gymID: activeGymID)
             context.insert(session)
             try? context.save()
             return session
@@ -1430,7 +1904,7 @@ struct StartWorkoutView: View {
                 sets: (0..<item.sets).map { WorkoutSet(order: $0) }
             )
         }
-        let session = WorkoutSession(title: "\(day.title) — \(day.focus)", exercises: logs)
+        let session = WorkoutSession(title: "\(day.title) — \(day.focus)", exercises: logs, gymID: activeGymID)
         context.insert(session)
         try? context.save()
         return session
@@ -1950,6 +2424,12 @@ struct ActiveWorkoutView: View {
                                 Label(durationString(session.duration), systemImage: "clock")
                                     .foregroundStyle(RFTheme.muted)
                             }
+                            Label(
+                                GymProfileStore.profile(id: session.gymID).name,
+                                systemImage: "mappin.and.ellipse"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(RFTheme.muted)
                         }
                         Spacer()
                         Button(L10n.finish) { showFinishConfirm = true }
@@ -2002,6 +2482,7 @@ struct ActiveWorkoutView: View {
                         WorkoutExerciseBlock(
                             log: log,
                             sessions: allSessions,
+                            gymID: GymProfileStore.sessionGymID(session),
                             onSetCompleted: {
                                 startRestTimer(for: log)
                             },
@@ -2239,6 +2720,7 @@ struct WorkoutExerciseBlock: View {
     @Environment(\.modelContext) private var context
     @Bindable var log: ExerciseLog
     let sessions: [WorkoutSession]
+    let gymID: String
     let onSetCompleted: () -> Void
     let onMoveUp: () -> Void
     let onMoveDown: () -> Void
@@ -2249,8 +2731,22 @@ struct WorkoutExerciseBlock: View {
     @State private var showOptions = false
 
     private var exercise: ExerciseDefinition? { ExerciseCatalog.find(log.exerciseID) }
-    private var previous: [(Double, Int)] { Metrics.previousSets(exerciseID: log.exerciseID, sessions: sessions) }
-    private var best: Double { Metrics.personalBest(exerciseID: log.exerciseID, sessions: sessions) }
+    private var previous: [(Double, Int)] {
+        Metrics.previousSets(
+            exerciseID: log.exerciseID,
+            sessions: sessions,
+            gymID: gymID
+        )
+    }
+
+    private var best: Double {
+        Metrics.personalBest(
+            exerciseID: log.exerciseID,
+            sessions: sessions,
+            gymID: gymID,
+            startDate: AppPreferences.prStartDate
+        )
+    }
     private var orderedSets: [WorkoutSet] { log.sets.sorted(by: { $0.order < $1.order }) }
 
     var body: some View {
@@ -3380,7 +3876,12 @@ struct ExerciseDetailView: View {
     @State private var tab = 0
 
     private var performances: [(date: Date, weight: Double, oneRM: Double, volume: Double)] {
-        Metrics.performances(exerciseID: exercise.id, sessions: sessions)
+        Metrics.performances(
+            exerciseID: exercise.id,
+            sessions: sessions,
+            gymID: AppPreferences.activeGymID,
+            startDate: AppPreferences.prStartDate
+        )
     }
 
     var body: some View {
@@ -3414,6 +3915,13 @@ struct ExerciseDetailView: View {
             Label(exercise.muscle, systemImage: "figure.strengthtraining.traditional")
             Spacer()
             Text(exercise.equipment).foregroundStyle(RFTheme.muted)
+        }
+
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L10n.text("Muscles trained", "Getrainde spieren"))
+                .font(.title3.bold())
+
+            FlowMuscleTags(contributions: exercise.detailedMuscles)
         }
 
         Text("How to perform").font(.title3.bold())
@@ -3500,10 +4008,31 @@ struct ExerciseDetailView: View {
         let maxVolume = performances.map(\.volume).max() ?? 0
 
         VStack(spacing: 12) {
+            HStack {
+                Label(recordScopeLabel, systemImage: "scope")
+                    .font(.caption.bold())
+                    .foregroundStyle(RFTheme.muted)
+                Spacer()
+            }
+
             RecordRow(name: L10n.text("Best weight", "Beste gewicht"), value: bestWeight > 0 ? "\(AppPreferences.displayWeight(bestWeight).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)" : "—")
             RecordRow(name: "Estimated 1RM", value: bestRM > 0 ? "\(AppPreferences.displayWeight(bestRM).formatted(.number.precision(.fractionLength(0...1)))) \(AppPreferences.weightLabel)" : "—")
             RecordRow(name: L10n.text("Max session volume", "Max sessievolume"), value: maxVolume > 0 ? "\(Int(AppPreferences.displayVolume(maxVolume))) \(AppPreferences.weightLabel)" : "—")
         }
+    }
+
+    private var recordScopeLabel: String {
+        let period: String
+        switch AppPreferences.prScope {
+        case "year": period = L10n.text("This year", "Dit jaar")
+        case "season": period = L10n.text("Current season", "Huidig seizoen")
+        default: period = L10n.text("Lifetime", "Altijd")
+        }
+
+        if AppPreferences.separateRecordsByGym {
+            return "\(period) • \(GymProfileStore.profile(id: AppPreferences.activeGymID).name)"
+        }
+        return period
     }
 }
 
