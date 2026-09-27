@@ -3,6 +3,7 @@ import SwiftData
 import Charts
 import AVKit
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - Theme
 
@@ -727,6 +728,429 @@ enum CustomExerciseStore {
 
     static func isCustom(_ id: String) -> Bool {
         id.hasPrefix("custom-")
+    }
+}
+
+// MARK: - Exercise search & shortcuts
+
+enum ExerciseSearch {
+    private static let aliases: [String: [String]] = [
+        "Bench Press (Barbell)": ["bench", "barbell bench", "bb bench", "flat bench"],
+        "Barbell Flat Bench Press": ["bench", "barbell bench", "bb bench", "flat bench"],
+        "Bench Press (Dumbbell)": ["db bench", "dumbbell bench", "flat dumbbell press"],
+        "Flat Dumbbell Bench Press": ["db bench", "dumbbell bench", "flat dumbbell press"],
+        "Incline Bench Press (Dumbbell)": ["incline db bench", "incline dumbbell press", "incline press"],
+        "Incline Dumbbell Bench Press": ["incline db bench", "incline dumbbell press", "incline press"],
+        "Overhead Press (Barbell)": ["ohp", "military press", "barbell shoulder press"],
+        "Standing Barbell Overhead Press (Military Press)": ["ohp", "military press", "barbell shoulder press"],
+        "Shoulder Press (Dumbbell)": ["db shoulder press", "dumbbell press"],
+        "Dumbbell Shoulder Press (Seated)": ["db shoulder press", "seated dumbbell press"],
+        "Romanian Deadlift (Barbell)": ["rdl", "barbell rdl", "romanian"],
+        "Dumbbell Romanian Deadlift": ["db rdl", "dumbbell rdl", "romanian"],
+        "Stiff Leg Deadlift": ["sldl", "stiff leg"],
+        "Lat Pulldown": ["lat pull down", "pulldown"],
+        "Lat Pulldown - Wide Grip": ["wide pulldown", "wide grip pulldown", "lat pull down"],
+        "Wide Grip Lat Pulldown": ["wide pulldown", "wide grip pulldown", "lat pull down"],
+        "Neutral Grip Lat Pulldown": ["neutral pulldown", "close grip pulldown"],
+        "Lateral Raise (Dumbbell)": ["lat raise", "side raise", "db lateral"],
+        "Standing Dumbbell Lateral Raise": ["lat raise", "side raise", "db lateral"],
+        "Lateral Raise (Cable)": ["cable lat raise", "cable lateral", "side delt cable"],
+        "Lean-Away Cable Lateral Raise": ["lean away lateral", "cable lat raise"],
+        "Face Pull": ["facepull", "rear delt cable"],
+        "Cable Face Pull": ["facepull", "rear delt cable"],
+        "Bent Over Row (Barbell)": ["barbell row", "bb row"],
+        "Bent Over Row (Dumbbell)": ["db row", "dumbbell row"],
+        "One Arm Dumbbell Row": ["one arm row", "single arm row", "db row"],
+        "Single-Arm Dumbbell Row": ["one arm row", "single arm row", "db row"],
+        "Seated Cable Row": ["cable row", "seated row"],
+        "Seated Cable Row (V-Bar)": ["v bar row", "cable row", "close grip row"],
+        "Chest Supported Machine Row": ["chest supported row", "machine row"],
+        "Chest Supported Dumbbell Row": ["chest supported row", "db row"],
+        "Leg Press": ["legpress"],
+        "Leg Extension (Machine)": ["leg ext", "quad extension"],
+        "Leg Curl (Lying)": ["lying ham curl", "hamstring curl"],
+        "Lying Leg Curl": ["lying ham curl", "hamstring curl"],
+        "Leg Curl (Seated)": ["seated ham curl", "hamstring curl"],
+        "Seated Leg Curl Machine": ["seated ham curl", "hamstring curl"],
+        "Hack Squat": ["hack"],
+        "Hack Squat Machine": ["hack"],
+        "Hip Thrust (Barbell)": ["hip thrust", "barbell thrust"],
+        "Triceps Pushdown": ["pushdown", "tricep pressdown"],
+        "Cable Triceps Rope Pushdown": ["rope pushdown", "rope pressdown"],
+        "Cable Triceps Straight Bar Pushdown": ["bar pushdown", "pressdown"],
+        "EZ-Bar Biceps Curl": ["ez curl", "ez bar curl"],
+        "EZ-Bar Curl": ["ez curl", "ez bar curl"],
+        "Hammer Curl": ["hammer"],
+        "Kneeling Cable Crunch": ["cable crunch", "kneeling crunch"],
+        "Abdominal Crunch Machine": ["ab crunch machine", "machine crunch", "ab machine"],
+        "Captain's Chair Leg Raise": ["captains chair", "vertical knee raise"],
+        "Pull Up": ["pullup", "pull-up"],
+        "Chin Up": ["chinup", "chin-up"],
+        "Push Up": ["pushup", "push-up"]
+    ]
+
+    static func matches(_ exercise: ExerciseDefinition, query: String) -> Bool {
+        let q = normalize(query)
+        guard !q.isEmpty else { return true }
+
+        let haystacks = [
+            exercise.name,
+            exercise.muscle,
+            exercise.equipment,
+            exercise.movement
+        ] + (aliases[exercise.name] ?? [])
+
+        if haystacks.contains(where: { normalize($0).contains(q) }) { return true }
+
+        let queryTokens = q.split(separator: " ").map(String.init)
+        let combined = normalize(haystacks.joined(separator: " "))
+        return queryTokens.allSatisfy { token in
+            combined.contains(expand(token))
+        }
+    }
+
+    private static func expand(_ token: String) -> String {
+        switch token {
+        case "db": return "dumbbell"
+        case "bb": return "barbell"
+        case "ohp": return "overhead press"
+        case "rdl": return "romanian deadlift"
+        case "sldl": return "stiff leg deadlift"
+        case "lat": return "lateral"
+        case "tri": return "triceps"
+        case "bi": return "biceps"
+        default: return token
+        }
+    }
+
+    private static func normalize(_ value: String) -> String {
+        value
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+            .replacingOccurrences(of: "&", with: " and ")
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: #"[^a-z0-9 ]+"#, with: " ", options: .regularExpression)
+            .split(separator: " ")
+            .joined(separator: " ")
+    }
+}
+
+enum ExerciseShortcutStore {
+    private static let favoritesKey = "repforge.exercise.favorites.v1"
+    private static let recentKey = "repforge.exercise.recents.v1"
+
+    static var favorites: [String] {
+        UserDefaults.standard.stringArray(forKey: favoritesKey) ?? []
+    }
+
+    static var recent: [String] {
+        UserDefaults.standard.stringArray(forKey: recentKey) ?? []
+    }
+
+    static func isFavorite(_ id: String) -> Bool {
+        favorites.contains(id)
+    }
+
+    static func toggleFavorite(_ id: String) {
+        var items = favorites
+        if items.contains(id) {
+            items.removeAll { $0 == id }
+        } else {
+            items.insert(id, at: 0)
+        }
+        UserDefaults.standard.set(items, forKey: favoritesKey)
+        bumpRevision()
+    }
+
+    static func recordRecent(_ id: String) {
+        var items = recent.filter { $0 != id }
+        items.insert(id, at: 0)
+        UserDefaults.standard.set(Array(items.prefix(20)), forKey: recentKey)
+        bumpRevision()
+    }
+
+    static func restore(favorites: [String], recent: [String]) {
+        UserDefaults.standard.set(favorites, forKey: favoritesKey)
+        UserDefaults.standard.set(recent, forKey: recentKey)
+        bumpRevision()
+    }
+
+    private static func bumpRevision() {
+        let revision = UserDefaults.standard.integer(forKey: "exerciseShortcutRevision")
+        UserDefaults.standard.set(revision + 1, forKey: "exerciseShortcutRevision")
+    }
+}
+
+// MARK: - Scheduling
+
+struct ScheduledWorkoutRecord: Codable, Identifiable, Hashable {
+    var id: String
+    var date: Date
+    var title: String
+    var exerciseIDs: [String]
+    var plan: [ProgramExercise]?
+    var gymID: String
+    var skipped: Bool
+    var sourceLabel: String?
+
+    init(
+        id: String = UUID().uuidString,
+        date: Date,
+        title: String,
+        exerciseIDs: [String],
+        plan: [ProgramExercise]? = nil,
+        gymID: String,
+        skipped: Bool = false,
+        sourceLabel: String? = nil
+    ) {
+        self.id = id
+        self.date = date
+        self.title = title
+        self.exerciseIDs = exerciseIDs
+        self.plan = plan
+        self.gymID = gymID
+        self.skipped = skipped
+        self.sourceLabel = sourceLabel
+    }
+}
+
+enum WorkoutScheduleStore {
+    private static let key = "repforge.schedule.v1"
+
+    static func load() -> [ScheduledWorkoutRecord] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let items = try? JSONDecoder().decode([ScheduledWorkoutRecord].self, from: data) else {
+            return []
+        }
+        return items.sorted { $0.date < $1.date }
+    }
+
+    static func save(_ items: [ScheduledWorkoutRecord]) {
+        guard let data = try? JSONEncoder().encode(items) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+        bumpRevision()
+    }
+
+    static func add(_ item: ScheduledWorkoutRecord) {
+        var items = load()
+        items.append(item)
+        save(items)
+    }
+
+    static func update(_ item: ScheduledWorkoutRecord) {
+        var items = load()
+        if let index = items.firstIndex(where: { $0.id == item.id }) {
+            items[index] = item
+        } else {
+            items.append(item)
+        }
+        save(items)
+    }
+
+    static func remove(id: String) {
+        save(load().filter { $0.id != id })
+    }
+
+    static func toggleSkipped(id: String) {
+        var items = load()
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].skipped.toggle()
+        save(items)
+    }
+
+    static func restore(_ items: [ScheduledWorkoutRecord]) {
+        save(items)
+    }
+
+    private static func bumpRevision() {
+        let revision = UserDefaults.standard.integer(forKey: "scheduleRevision")
+        UserDefaults.standard.set(revision + 1, forKey: "scheduleRevision")
+    }
+}
+
+// MARK: - Sharing
+
+struct RepForgeSharePayload: Codable {
+    var version: Int
+    var kind: String
+    var name: String
+    var exercises: [ProgramExercise]?
+    var days: [ProgramDay]?
+}
+
+enum RepForgeShareCodec {
+    static func templateURL(name: String, exercises: [ProgramExercise]) -> URL {
+        makeURL(
+            RepForgeSharePayload(
+                version: 1,
+                kind: "template",
+                name: name,
+                exercises: exercises,
+                days: nil
+            )
+        )
+    }
+
+    static func programURL(name: String, days: [ProgramDay]) -> URL {
+        makeURL(
+            RepForgeSharePayload(
+                version: 1,
+                kind: "program",
+                name: name,
+                exercises: nil,
+                days: days
+            )
+        )
+    }
+
+    static func decode(_ url: URL) -> RepForgeSharePayload? {
+        guard url.scheme?.lowercased() == "repforge",
+              url.host?.lowercased() == "import",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let encoded = components.queryItems?.first(where: { $0.name == "payload" })?.value,
+              let data = Data(base64URLEncoded: encoded) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(RepForgeSharePayload.self, from: data)
+    }
+
+    private static func makeURL(_ payload: RepForgeSharePayload) -> URL {
+        let data = (try? JSONEncoder().encode(payload)) ?? Data()
+        let encoded = data.base64URLEncodedString()
+        var components = URLComponents()
+        components.scheme = "repforge"
+        components.host = "import"
+        components.queryItems = [URLQueryItem(name: "payload", value: encoded)]
+        return components.url ?? URL(string: "repforge://import")!
+    }
+}
+
+extension Data {
+    fileprivate func base64URLEncodedString() -> String {
+        base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    fileprivate init?(base64URLEncoded value: String) {
+        var base64 = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = base64.count % 4
+        if remainder > 0 {
+            base64 += String(repeating: "=", count: 4 - remainder)
+        }
+        self.init(base64Encoded: base64)
+    }
+}
+
+// MARK: - Full backup
+
+struct RepForgeBackupPayload: Codable {
+    var version: Int
+    var exportedAt: Date
+    var templates: [BackupTemplate]
+    var sessions: [BackupSession]
+    var profiles: [BackupProfile]
+    var customExercises: [CustomExerciseRecord]
+    var gyms: [GymProfile]
+    var scheduledWorkouts: [ScheduledWorkoutRecord]
+    var programDays: [String: ProgramDay]
+    var favorites: [String]
+    var recents: [String]
+    var settings: BackupSettings
+}
+
+struct BackupTemplate: Codable {
+    var id: UUID
+    var name: String
+    var exerciseIDs: [String]
+    var plan: [ProgramExercise]?
+    var createdAt: Date
+}
+
+struct BackupSession: Codable {
+    var id: UUID
+    var title: String
+    var startedAt: Date
+    var endedAt: Date?
+    var note: String?
+    var gymID: String?
+    var exercises: [BackupExerciseLog]
+}
+
+struct BackupExerciseLog: Codable {
+    var id: UUID
+    var exerciseID: String
+    var order: Int
+    var targetReps: String?
+    var coachingNote: String?
+    var supersetGroup: String?
+    var sessionNote: String?
+    var restSeconds: Int?
+    var sets: [BackupSet]
+}
+
+struct BackupSet: Codable {
+    var id: UUID
+    var order: Int
+    var weightKg: Double
+    var reps: Int
+    var completed: Bool
+    var completedAt: Date?
+    var setTypeRaw: String?
+    var rpe: Double?
+    var rir: Int?
+    var note: String?
+}
+
+struct BackupProfile: Codable {
+    var id: UUID
+    var displayName: String
+    var bio: String
+    var bodyWeightKg: Double
+    var heightCm: Double
+    var createdAt: Date
+}
+
+struct BackupSettings: Codable {
+    var appLanguage: String
+    var measurementSystem: String
+    var appearance: String
+    var themePreset: String
+    var textSize: String
+    var hapticsEnabled: Bool
+    var showPreviousSets: Bool
+    var keepScreenAwake: Bool
+    var defaultSets: Int
+    var defaultRestSeconds: Int
+    var autoRestTimer: Bool
+    var progressionStepKg: Double
+    var activeGymID: String
+    var separateRecordsByGym: Bool
+    var prScope: String
+    var seasonStartDate: Double
+}
+
+struct RepForgeBackupDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+
+    var text: String
+
+    init(text: String = "") {
+        self.text = text
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let data = configuration.file.regularFileContents else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        text = String(decoding: data, as: UTF8.self)
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: Data(text.utf8))
     }
 }
 
