@@ -635,14 +635,28 @@ enum ExerciseMediaService {
         let items = try await ExerciseMediaCatalog.shared.exercises()
         guard !items.isEmpty else { return nil }
 
-        let query = preferredSearchTerm(for: exercise)
-        let ranked = items
-            .map { ($0, score(item: $0, query: query, exercise: exercise)) }
-            .sorted { $0.1 > $1.1 }
-
-        guard let (best, bestScore) = ranked.first, bestScore >= 65 else {
+        if noExactDemo.contains(exercise.name) {
             return nil
         }
+
+        let selected: ExerciseDBItem?
+
+        if let sourceID = exactSourceIDs[exercise.name] {
+            selected = items.first(where: { $0.id == sourceID })
+        } else {
+            let query = preferredSearchTerm(for: exercise)
+            let ranked = items
+                .map { ($0, score(item: $0, query: query, exercise: exercise)) }
+                .sorted { $0.1 > $1.1 }
+
+            if let (best, bestScore) = ranked.first, bestScore >= 300 {
+                selected = best
+            } else {
+                selected = nil
+            }
+        }
+
+        guard let best = selected else { return nil }
 
         let maleVideo = best.videos?.male.flatMap(URL.init(string:))
         let femaleVideo = best.videos?.female.flatMap(URL.init(string:))
@@ -664,59 +678,107 @@ enum ExerciseMediaService {
         )
     }
 
+    // These mappings were manually audited against the source catalog so a
+    // semantically different exercise can never win only because of aliases.
+    private static let exactSourceIDs: [String: String] = [
+        "Barbell Flat Bench Press": "0025",
+        "Bench Press (Barbell)": "0025",
+        "Chest Supported Machine Row": "1349",
+        "Lying Leg Curl": "0586",
+        "Leg Curl (Lying)": "0586",
+        "Cable Triceps Rope Pushdown": "0200",
+        "Lateral Raise (Cable)": "0178",
+        "Dumbbell Shoulder Press (Seated)": "0289",
+        "Shoulder Press (Dumbbell)": "0289",
+        "Wide Grip Lat Pulldown": "drv-cable-bar-lateral-pulldown-wide-shoulder-grip",
+        "Lat Pulldown - Wide Grip": "drv-cable-bar-lateral-pulldown-wide-shoulder-grip",
+        "Leg Extension (Machine)": "0585",
+        "Standing Dumbbell Biceps Curl": "0294",
+        "Goblet Squat": "1760",
+        "Seated Cable Row (V-Bar)": "0208",
+        "Seated Cable Row": "0208",
+        "Incline Dumbbell Bench Press": "0314",
+        "Incline Bench Press (Dumbbell)": "0314",
+        "Standing Calf Raise": "0605",
+        "Standing Dumbbell Lateral Raise": "0334",
+        "Incline Dumbbell Curl": "0318",
+        "Cable Overhead Triceps Rope Extension": "0194",
+        "Reverse Pec Deck Machine": "0602",
+        "Captain's Chair Leg Raise": "0826",
+        "Hack Squat Machine": "0743",
+        "Seated Leg Curl Machine": "0599",
+        "Leg Curl (Seated)": "0599",
+        "Cable Triceps Straight Bar Pushdown": "1723",
+        "Standing Barbell Overhead Press (Military Press)": "0553",
+        "Neutral Grip Lat Pulldown": "0974",
+        "Dumbbell Walking Lunges": "0336",
+        "Walking Lunge": "0336",
+        "Cable Biceps Curl": "0229",
+        "Chest Supported Dumbbell Row": "0327",
+        "Seated Calf Raise Machine": "0594",
+        "EZ-Bar Biceps Curl": "2407",
+        "EZ-Bar Curl": "2407",
+        "Kneeling Cable Crunch": "0175",
+        "Triceps Pushdown": "1723",
+        "Arnold Dumbbell Press": "2137",
+        "Close-Grip Barbell Bench Press": "0030",
+        "Dumbbell Preacher Curl": "0402",
+        "Lying Dumbbell Skull Crushers": "0351",
+        "Lying Floor Leg Raises": "0865",
+        "Flat Leg Raise": "0865"
+    ]
+
+    // The source database does not contain an exact enough demonstration for
+    // these RepForge exercises. Showing no video is preferable to a wrong one.
+    private static let noExactDemo: Set<String> = [
+        "Cable Face Pull",
+        "Face Pull",
+        "Dumbbell Romanian Deadlift",
+        "Romanian Deadlift (Barbell)",
+        "Trap Bar Deadlift",
+        "Single-Arm Dumbbell Row",
+        "One Arm Dumbbell Row",
+        "Hammer Curl",
+        "Assisted Dip Machine",
+        "Lean-Away Cable Lateral Raise",
+        "EZ-Bar Reverse Curl",
+        "Flat Dumbbell Bench Press",
+        "Bench Press (Dumbbell)"
+    ]
+
     private static func preferredSearchTerm(for exercise: ExerciseDefinition) -> String {
         let explicit: [String: String] = [
-            "Barbell Flat Bench Press": "barbell bench press",
-            "Bench Press (Barbell)": "barbell bench press",
-            "Bench Press (Dumbbell)": "dumbbell bench press",
             "Bench Press (Smith Machine)": "smith machine bench press",
-            "Incline Dumbbell Bench Press": "incline dumbbell bench press",
-            "Incline Bench Press (Dumbbell)": "incline dumbbell bench press",
-            "Flat Dumbbell Bench Press": "dumbbell bench press",
-            "Close-Grip Barbell Bench Press": "close grip bench press",
-            "Chest Supported Machine Row": "chest supported machine row",
-            "Chest Supported Dumbbell Row": "chest supported dumbbell row",
-            "Dumbbell Shoulder Press (Seated)": "seated dumbbell shoulder press",
-            "Shoulder Press (Dumbbell)": "dumbbell shoulder press",
-            "Standing Barbell Overhead Press (Military Press)": "barbell overhead press",
-            "Arnold Dumbbell Press": "arnold press",
-            "Wide Grip Lat Pulldown": "wide grip lat pulldown",
-            "Lat Pulldown - Wide Grip": "wide grip lat pulldown",
-            "Neutral Grip Lat Pulldown": "neutral grip lat pulldown",
-            "Seated Cable Row (V-Bar)": "seated cable row",
-            "Cable Face Pull": "face pull",
-            "Face Pull": "face pull",
-            "Captain's Chair Leg Raise": "captains chair leg raise",
-            "Lying Floor Leg Raises": "lying leg raise",
-            "Flat Leg Raise": "lying leg raise",
-            "Dumbbell Romanian Deadlift": "dumbbell romanian deadlift",
-            "Romanian Deadlift (Barbell)": "barbell romanian deadlift",
-            "Trap Bar Deadlift": "trap bar deadlift",
-            "Cable Triceps Rope Pushdown": "rope triceps pushdown",
-            "Cable Triceps Straight Bar Pushdown": "triceps pushdown",
-            "Cable Overhead Triceps Rope Extension": "overhead cable triceps extension",
-            "Lying Dumbbell Skull Crushers": "dumbbell skull crusher",
-            "Lean-Away Cable Lateral Raise": "cable lateral raise",
-            "Lateral Raise (Cable)": "cable lateral raise",
-            "Standing Dumbbell Lateral Raise": "dumbbell lateral raise",
-            "Reverse Pec Deck Machine": "reverse pec deck",
-            "Hack Squat Machine": "hack squat",
-            "Leg Extension (Machine)": "leg extension",
-            "Lying Leg Curl": "lying leg curl",
-            "Leg Curl (Lying)": "lying leg curl",
-            "Seated Leg Curl Machine": "seated leg curl",
-            "Leg Curl (Seated)": "seated leg curl",
-            "Standing Calf Raise": "standing calf raise",
-            "Seated Calf Raise Machine": "seated calf raise",
-            "Kneeling Cable Crunch": "cable crunch",
-            "Single-Arm Dumbbell Row": "one arm dumbbell row",
-            "One Arm Dumbbell Row": "one arm dumbbell row",
-            "Dumbbell Walking Lunges": "dumbbell walking lunge",
-            "Walking Lunge": "walking lunge",
-            "EZ-Bar Biceps Curl": "ez bar curl",
-            "EZ-Bar Curl": "ez bar curl",
-            "Dumbbell Preacher Curl": "dumbbell preacher curl",
-            "Incline Dumbbell Curl": "incline dumbbell curl"
+            "Decline Bench Press": "barbell decline bench press",
+            "Chest Press (Machine)": "lever chest press",
+            "Cable Fly": "cable fly",
+            "Push Up": "push up",
+            "Dip (Chest)": "chest dip",
+            "Deadlift (Barbell)": "barbell deadlift",
+            "Bent Over Row (Barbell)": "barbell bent over row",
+            "Bent Over Row (Dumbbell)": "dumbbell bent over row",
+            "Lat Pulldown": "cable pulldown",
+            "Pull Up": "pull up",
+            "Chin Up": "chin up",
+            "Back Extension": "back extension",
+            "Shoulder Press (Machine)": "lever shoulder press",
+            "Front Raise": "dumbbell front raise",
+            "Rear Delt Fly": "dumbbell rear delt fly",
+            "Biceps Curl (Barbell)": "barbell curl",
+            "Biceps Curl (Dumbbell)": "dumbbell biceps curl",
+            "Preacher Curl": "lever preacher curl",
+            "Squat (Barbell)": "barbell squat",
+            "Front Squat": "barbell front squat",
+            "Leg Press": "lever horizontal leg press",
+            "Bulgarian Split Squat": "dumbbell bulgarian split squat",
+            "Hip Thrust (Barbell)": "barbell hip thrust",
+            "Standing Calf Raise (Dumbbell)": "dumbbell standing calf raise",
+            "Crunch": "floor crunch",
+            "Cable Crunch": "cable kneeling crunch",
+            "Hanging Leg Raise": "hanging leg hip raise",
+            "Plank": "plank",
+            "Russian Twist": "russian twist",
+            "Bicycle Crunch": "bicycle crunch"
         ]
 
         if let explicit = explicit[exercise.name] { return explicit }
@@ -742,36 +804,50 @@ enum ExerciseMediaService {
     private static func score(item: ExerciseDBItem, query: String, exercise: ExerciseDefinition) -> Int {
         let q = normalize(query)
         let qTokens = Set(q.split(separator: " ").map(String.init))
-        let candidates = [item.name] + (item.aliases ?? [])
+        let primary = normalize(item.name)
 
         var best = 0
-        for candidate in candidates {
-            let n = normalize(candidate)
-            let nTokens = Set(n.split(separator: " ").map(String.init))
-            let intersection = qTokens.intersection(nTokens).count
-            let union = qTokens.union(nTokens).count
-            let similarity = union == 0 ? 0 : Int((Double(intersection) / Double(union)) * 100.0)
 
-            var local = similarity
-            if n == q { local += 140 }
-            else if n.contains(q) || q.contains(n) { local += 70 }
-
-            best = max(best, local)
+        if primary == q {
+            best = 700
+        } else if primary.contains(q) || q.contains(primary) {
+            best = 360
+        } else {
+            let nameTokens = Set(primary.split(separator: " ").map(String.init))
+            let intersection = qTokens.intersection(nameTokens).count
+            let union = qTokens.union(nameTokens).count
+            best = union == 0 ? 0 : Int((Double(intersection) / Double(union)) * 180.0)
         }
 
-        if let bodyPart = item.bodyPart {
-            let body = normalize(bodyPart)
-            let appMuscle = normalize(exercise.muscle)
-            if body.contains(appMuscle) || appMuscle.contains(body) { best += 8 }
+        for alias in item.aliases ?? [] {
+            let normalizedAlias = normalize(alias)
+            if normalizedAlias == q {
+                best = max(best, 500)
+            } else if normalizedAlias.contains(q) || q.contains(normalizedAlias) {
+                best = max(best, 260)
+            }
         }
 
         if let equipment = item.equipment {
             let sourceEquipment = normalize(equipment)
             let appEquipment = normalize(exercise.equipment)
-            if sourceEquipment.contains(appEquipment) || appEquipment.contains(sourceEquipment) { best += 10 }
+            let compatible =
+                sourceEquipment.contains(appEquipment) ||
+                appEquipment.contains(sourceEquipment) ||
+                (appEquipment == "machine" && (
+                    sourceEquipment.contains("leverage") ||
+                    sourceEquipment.contains("sled") ||
+                    sourceEquipment.contains("smith")
+                )) ||
+                (appEquipment == "bodyweight" && sourceEquipment.contains("body weight"))
+
+            best += compatible ? 45 : -80
         }
 
-        if item.videos?.male != nil || item.videos?.female != nil { best += 12 }
+        if item.videos?.male != nil || item.videos?.female != nil {
+            best += 20
+        }
+
         return best
     }
 }
