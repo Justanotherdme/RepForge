@@ -7457,80 +7457,10 @@ struct ProfileView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 18) {
-                    if let profile {
-                        ZStack {
-                            Circle().fill(RFTheme.accent.opacity(0.22)).frame(width: 96, height: 96)
-                            Text(String(profile.displayName.prefix(1)).uppercased())
-                                .font(.largeTitle.bold())
-                                .foregroundStyle(RFTheme.accent)
-                        }
-
-                        Text(profile.displayName).font(.title.bold())
-                        Text(profile.bio).foregroundStyle(RFTheme.muted)
-
-                        Label(
-                            separateRecordsByGym
-                                ? GymProfileStore.profile(id: activeGymID).name
-                                : L10n.text("All gyms", "Alle gyms"),
-                            systemImage: "mappin.and.ellipse"
-                        )
-                        .font(.caption.bold())
-                        .foregroundStyle(RFTheme.accent)
-                        .id(gymRevision)
-
-                        HStack {
-                            StatCard(title: L10n.text("Workouts", "Trainingen"), value: "\(completed.count)", icon: "dumbbell.fill")
-                            StatCard(title: L10n.text("Total Volume", "Totaal volume"), value: "\(Int(AppPreferences.displayVolume(completed.reduce(0) { $0 + $1.totalVolume }))) \(AppPreferences.weightLabel)", icon: "chart.bar.fill")
-                        }
-
-                        HStack {
-                            StatCard(title: L10n.text("This week", "Deze week"), value: "\(workoutsThisWeek)", icon: "calendar")
-                            StatCard(title: L10n.text("Current streak", "Huidige reeks"), value: "\(currentStreak) \(L10n.text("wk", "wk"))", icon: "flame.fill")
-                        }
-
-                        HStack {
-                            StatCard(title: L10n.text("Completed sets", "Voltooide sets"), value: "\(totalCompletedSets)", icon: "checkmark.circle.fill")
-                            StatCard(title: L10n.text("Avg duration", "Gem. duur"), value: averageDuration, icon: "timer")
-                        }
-
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Training activity").font(.title3.bold())
-                            Chart(activityData, id: \.date) { item in
-                                BarMark(
-                                    x: .value("Day", item.date, unit: .day),
-                                    y: .value("Workouts", item.count)
-                                )
-                                .foregroundStyle(RFTheme.accent)
-                            }
-                            .frame(height: 190)
-                            .chartYAxis(.hidden)
-                        }
+                if let profile {
+                    profileDashboard(profile)
                         .padding()
-                        .background(RFTheme.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
-
-                        MuscleVolumeDashboard(entries: weeklyMuscleVolume)
-
-                        MuscleRecoveryDashboard(entries: recoveryData)
-
-                        if !weeklyMuscleVolume.isEmpty {
-                            MuscleHeatMapView(
-                                entries: weeklyMuscleVolume,
-                                title: L10n.text("This week's muscle map", "Spierkaart van deze week")
-                            )
-                        }
-
-                        Button {
-                            editing = true
-                        } label: {
-                            Label("Edit Local Profile", systemImage: "pencil")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                    }
                 }
-                .padding()
             }
             .background(RFTheme.bg)
             .navigationTitle(L10n.profile)
@@ -7539,6 +7469,48 @@ struct ProfileView: View {
                     EditProfileView(profile: profile)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func profileDashboard(_ profile: UserProfile) -> some View {
+        VStack(spacing: 18) {
+            ProfileIdentityHeader(
+                profile: profile,
+                gymName: separateRecordsByGym
+                    ? GymProfileStore.profile(id: activeGymID).name
+                    : L10n.text("All gyms", "Alle gyms"),
+                revision: gymRevision
+            )
+
+            ProfileStatsGrid(
+                workoutCount: completed.count,
+                totalVolume: completed.reduce(0) { $0 + $1.totalVolume },
+                workoutsThisWeek: workoutsThisWeek,
+                streak: currentStreak,
+                completedSets: totalCompletedSets,
+                averageDuration: averageDuration
+            )
+
+            ProfileActivityCard(activityData: activityData)
+
+            MuscleVolumeDashboard(entries: weeklyMuscleVolume)
+            MuscleRecoveryDashboard(entries: recoveryData)
+
+            if !weeklyMuscleVolume.isEmpty {
+                MuscleHeatMapView(
+                    entries: weeklyMuscleVolume,
+                    title: L10n.text("This week's muscle map", "Spierkaart van deze week")
+                )
+            }
+
+            Button {
+                editing = true
+            } label: {
+                Label(L10n.text("Edit Local Profile", "Lokaal profiel bewerken"), systemImage: "pencil")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
         }
     }
 
@@ -7586,6 +7558,132 @@ struct ProfileView: View {
             let count = completed.filter { cal.isDate($0.startedAt, inSameDayAs: date) }.count
             return (date, count)
         }
+    }
+}
+
+struct ProfileIdentityHeader: View {
+    let profile: UserProfile
+    let gymName: String
+    let revision: Int
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [RFTheme.accent.opacity(0.28), RFTheme.accent.opacity(0.08)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 96, height: 96)
+
+                Text(String(profile.displayName.prefix(1)).uppercased())
+                    .font(.largeTitle.bold())
+                    .foregroundStyle(RFTheme.accent)
+            }
+
+            Text(profile.displayName)
+                .font(.title.bold())
+
+            Text(profile.bio)
+                .foregroundStyle(RFTheme.muted)
+
+            Label(gymName, systemImage: "mappin.and.ellipse")
+                .font(.caption.bold())
+                .foregroundStyle(RFTheme.accent)
+                .id(revision)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(RFTheme.heroGradient)
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(RFTheme.cardBorder)
+        )
+    }
+}
+
+struct ProfileStatsGrid: View {
+    let workoutCount: Int
+    let totalVolume: Double
+    let workoutsThisWeek: Int
+    let streak: Int
+    let completedSets: Int
+    let averageDuration: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack {
+                StatCard(
+                    title: L10n.text("Workouts", "Trainingen"),
+                    value: "\(workoutCount)",
+                    icon: "dumbbell.fill"
+                )
+                StatCard(
+                    title: L10n.text("Total Volume", "Totaal volume"),
+                    value: "\(Int(AppPreferences.displayVolume(totalVolume))) \(AppPreferences.weightLabel)",
+                    icon: "chart.bar.fill"
+                )
+            }
+
+            HStack {
+                StatCard(
+                    title: L10n.text("This week", "Deze week"),
+                    value: "\(workoutsThisWeek)",
+                    icon: "calendar"
+                )
+                StatCard(
+                    title: L10n.text("Current streak", "Huidige reeks"),
+                    value: "\(streak) \(L10n.text("wk", "wk"))",
+                    icon: "flame.fill"
+                )
+            }
+
+            HStack {
+                StatCard(
+                    title: L10n.text("Completed sets", "Voltooide sets"),
+                    value: "\(completedSets)",
+                    icon: "checkmark.circle.fill"
+                )
+                StatCard(
+                    title: L10n.text("Avg duration", "Gem. duur"),
+                    value: averageDuration,
+                    icon: "timer"
+                )
+            }
+        }
+    }
+}
+
+struct ProfileActivityCard: View {
+    let activityData: [(date: Date, count: Int)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L10n.text("Training activity", "Trainingsactiviteit"))
+                .font(.title3.bold())
+
+            Chart(activityData, id: \.date) { item in
+                BarMark(
+                    x: .value("Day", item.date, unit: .day),
+                    y: .value("Workouts", item.count)
+                )
+                .foregroundStyle(RFTheme.accent.gradient)
+                .cornerRadius(4)
+            }
+            .frame(height: 190)
+            .chartYAxis(.hidden)
+        }
+        .padding()
+        .background(RFTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(RFTheme.cardBorder)
+        )
     }
 }
 
