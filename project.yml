@@ -14,6 +14,7 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      - path: Shared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.xflipperkast.repforge
@@ -22,3 +23,20 @@ targets:
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
         SUPPORTS_MACCATALYST: NO
+    dependencies:
+      - target: RepForgeLiveActivity
+
+  RepForgeLiveActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: RepForgeLiveActivity
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.xflipperkast.repforge.liveactivity
+        INFOPLIST_FILE: RepForgeLiveActivity/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
