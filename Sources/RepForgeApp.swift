@@ -6571,12 +6571,45 @@ struct ExerciseDetailView: View {
     @State private var tab = 0
 
     private var performances: [(date: Date, weight: Double, oneRM: Double, volume: Double)] {
-        Metrics.performances(
+        guard exercise.movement != "cardio" else { return [] }
+        return Metrics.performances(
             exerciseID: exercise.id,
             sessions: sessions,
             gymID: AppPreferences.activeGymID,
             startDate: AppPreferences.prStartDate
         )
+    }
+
+    private var cardioPerformances: [(date: Date, distanceKm: Double, duration: Double, calories: Double, avgHR: Double?)] {
+        guard exercise.movement == "cardio" else { return [] }
+
+        return Metrics.scopedSessions(
+            sessions,
+            gymID: AppPreferences.activeGymID,
+            startDate: AppPreferences.prStartDate
+        )
+        .compactMap { session in
+            guard let log = session.exercises.first(where: { $0.exerciseID == exercise.id }) else { return nil }
+            let completed = log.sets.filter(\.completed)
+            guard !completed.isEmpty else { return nil }
+
+            let distance = completed.reduce(0.0) { $0 + ($1.distanceKm ?? 0) }
+            let duration = completed.reduce(0.0) { $0 + ($1.durationSeconds ?? 0) }
+            let calories = completed.reduce(0.0) { $0 + ($1.calories ?? 0) }
+            let heartRates = completed.compactMap(\.averageHeartRate)
+            let avgHR = heartRates.isEmpty
+                ? nil
+                : Double(heartRates.reduce(0, +)) / Double(heartRates.count)
+
+            return (
+                session.endedAt ?? session.startedAt,
+                distance,
+                duration,
+                calories,
+                avgHR
+            )
+        }
+        .sorted { $0.date < $1.date }
     }
 
     var body: some View {
@@ -6645,14 +6678,71 @@ struct ExerciseDetailView: View {
 
     @ViewBuilder
     private var history: some View {
-        if performances.isEmpty {
-            EmptyCard(icon: "clock", title: "No history yet", text: "Complete this exercise in a workout to populate its history.")
+        if exercise.movement == "cardio" {
+            if cardioPerformances.isEmpty {
+                EmptyCard(
+                    icon: "clock",
+                    title: L10n.text("No cardio history yet", "Nog geen cardiogeschiedenis"),
+                    text: L10n.text("Complete this cardio exercise to populate its history.", "Voltooi deze cardio-oefening om geschiedenis op te bouwen.")
+                )
+            } else {
+                ForEach(Array(cardioPerformances.reversed().enumerated()), id: \.offset) { _, p in
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(RFTheme.accent.opacity(0.12))
+                            Image(systemName: "figure.run")
+                                .foregroundStyle(RFTheme.accent)
+                        }
+                        .frame(width: 42, height: 42)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(p.date.formatted(date: .abbreviated, time: .omitted))
+                                .bold()
+
+                            HStack(spacing: 7) {
+                                if p.duration > 0 {
+                                    Text(cardioDurationText(p.duration))
+                                }
+                                if p.distanceKm > 0 {
+                                    Text("• \(AppPreferences.displayDistance(p.distanceKm).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.distanceLabel)")
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        if let pace = cardioPaceText(duration: p.duration, distanceKm: p.distanceKm) {
+                            Text(pace)
+                                .font(.headline)
+                                .foregroundStyle(RFTheme.accent)
+                        }
+                    }
+                    .padding()
+                    .background(RFTheme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(RFTheme.cardBorder)
+                    )
+                }
+            }
+        } else if performances.isEmpty {
+            EmptyCard(
+                icon: "clock",
+                title: "No history yet",
+                text: "Complete this exercise in a workout to populate its history."
+            )
         } else {
             ForEach(Array(performances.reversed().enumerated()), id: \.offset) { _, p in
                 HStack {
                     VStack(alignment: .leading) {
                         Text(p.date.formatted(date: .abbreviated, time: .omitted)).bold()
-                        Text("\(L10n.text("Volume", "Volume")) \(Int(AppPreferences.displayVolume(p.volume))) \(AppPreferences.weightLabel)").font(.caption).foregroundStyle(.secondary)
+                        Text("\(L10n.text("Volume", "Volume")) \(Int(AppPreferences.displayVolume(p.volume))) \(AppPreferences.weightLabel)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Text("\(AppPreferences.displayWeight(p.weight).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)")
@@ -6668,15 +6758,70 @@ struct ExerciseDetailView: View {
 
     @ViewBuilder
     private var charts: some View {
-        if performances.isEmpty {
-            EmptyCard(icon: "chart.xyaxis.line", title: "No chart data", text: "Your weight progression will appear after completed sessions.")
+        if exercise.movement == "cardio" {
+            if cardioPerformances.isEmpty {
+                EmptyCard(
+                    icon: "chart.xyaxis.line",
+                    title: L10n.text("No cardio chart data", "Geen cardiografiekdata"),
+                    text: L10n.text("Distance and duration trends appear after completed cardio sessions.", "Afstand- en duurtrends verschijnen na voltooide cardiosessies.")
+                )
+            } else {
+                Text(L10n.text("Distance", "Afstand"))
+                    .font(.title3.bold())
+
+                Chart {
+                    ForEach(Array(cardioPerformances.enumerated()), id: \.offset) { _, p in
+                        LineMark(
+                            x: .value("Date", p.date),
+                            y: .value("Distance", AppPreferences.displayDistance(p.distanceKm))
+                        )
+                        .interpolationMethod(.catmullRom)
+                        .foregroundStyle(RFTheme.accent)
+
+                        PointMark(
+                            x: .value("Date", p.date),
+                            y: .value("Distance", AppPreferences.displayDistance(p.distanceKm))
+                        )
+                        .foregroundStyle(RFTheme.accent)
+                    }
+                }
+                .frame(height: 220)
+
+                Text(L10n.text("Duration", "Duur"))
+                    .font(.title3.bold())
+                    .padding(.top, 8)
+
+                Chart {
+                    ForEach(Array(cardioPerformances.enumerated()), id: \.offset) { _, p in
+                        BarMark(
+                            x: .value("Date", p.date),
+                            y: .value("Minutes", p.duration / 60.0)
+                        )
+                        .foregroundStyle(RFTheme.accent.gradient)
+                    }
+                }
+                .frame(height: 220)
+            }
+        } else if performances.isEmpty {
+            EmptyCard(
+                icon: "chart.xyaxis.line",
+                title: "No chart data",
+                text: "Your weight progression will appear after completed sessions."
+            )
         } else {
             Text("Best weight").font(.title3.bold())
             Chart {
                 ForEach(Array(performances.enumerated()), id: \.offset) { _, p in
-                    LineMark(x: .value("Date", p.date), y: .value("Weight", AppPreferences.displayWeight(p.weight)))
-                        .interpolationMethod(.catmullRom)
-                    PointMark(x: .value("Date", p.date), y: .value("Weight", AppPreferences.displayWeight(p.weight)))
+                    LineMark(
+                        x: .value("Date", p.date),
+                        y: .value("Weight", AppPreferences.displayWeight(p.weight))
+                    )
+                    .interpolationMethod(.catmullRom)
+
+                    PointMark(
+                        x: .value("Date", p.date),
+                        y: .value("Weight", AppPreferences.displayWeight(p.weight))
+                    )
                 }
             }
             .frame(height: 220)
@@ -6684,12 +6829,19 @@ struct ExerciseDetailView: View {
             Text("Estimated 1RM").font(.title3.bold()).padding(.top, 8)
             Chart {
                 ForEach(Array(performances.enumerated()), id: \.offset) { _, p in
-                    AreaMark(x: .value("Date", p.date), y: .value("1RM", AppPreferences.displayWeight(p.oneRM)))
-                        .interpolationMethod(.catmullRom)
-                        .foregroundStyle(RFTheme.accent.opacity(0.22))
-                    LineMark(x: .value("Date", p.date), y: .value("1RM", AppPreferences.displayWeight(p.oneRM)))
-                        .interpolationMethod(.catmullRom)
-                        .foregroundStyle(RFTheme.accent)
+                    AreaMark(
+                        x: .value("Date", p.date),
+                        y: .value("1RM", AppPreferences.displayWeight(p.oneRM))
+                    )
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(RFTheme.accent.opacity(0.22))
+
+                    LineMark(
+                        x: .value("Date", p.date),
+                        y: .value("1RM", AppPreferences.displayWeight(p.oneRM))
+                    )
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(RFTheme.accent)
                 }
             }
             .frame(height: 220)
@@ -6698,10 +6850,6 @@ struct ExerciseDetailView: View {
 
     @ViewBuilder
     private var records: some View {
-        let bestWeight = performances.map(\.weight).max() ?? 0
-        let bestRM = performances.map(\.oneRM).max() ?? 0
-        let maxVolume = performances.map(\.volume).max() ?? 0
-
         VStack(spacing: 12) {
             HStack {
                 Label(recordScopeLabel, systemImage: "scope")
@@ -6710,10 +6858,80 @@ struct ExerciseDetailView: View {
                 Spacer()
             }
 
-            RecordRow(name: L10n.text("Best weight", "Beste gewicht"), value: bestWeight > 0 ? "\(AppPreferences.displayWeight(bestWeight).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)" : "—")
-            RecordRow(name: "Estimated 1RM", value: bestRM > 0 ? "\(AppPreferences.displayWeight(bestRM).formatted(.number.precision(.fractionLength(0...1)))) \(AppPreferences.weightLabel)" : "—")
-            RecordRow(name: L10n.text("Max session volume", "Max sessievolume"), value: maxVolume > 0 ? "\(Int(AppPreferences.displayVolume(maxVolume))) \(AppPreferences.weightLabel)" : "—")
+            if exercise.movement == "cardio" {
+                let longestDistance = cardioPerformances.map(\.distanceKm).max() ?? 0
+                let longestDuration = cardioPerformances.map(\.duration).max() ?? 0
+                let mostCalories = cardioPerformances.map(\.calories).max() ?? 0
+                let fastestPace = cardioPerformances
+                    .compactMap { performance -> Double? in
+                        guard performance.distanceKm > 0, performance.duration > 0 else { return nil }
+                        let displayedDistance = AppPreferences.displayDistance(performance.distanceKm)
+                        guard displayedDistance > 0 else { return nil }
+                        return performance.duration / displayedDistance
+                    }
+                    .min()
+
+                RecordRow(
+                    name: L10n.text("Longest distance", "Langste afstand"),
+                    value: longestDistance > 0
+                        ? "\(AppPreferences.displayDistance(longestDistance).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.distanceLabel)"
+                        : "—"
+                )
+
+                RecordRow(
+                    name: L10n.text("Longest duration", "Langste duur"),
+                    value: longestDuration > 0 ? cardioDurationText(longestDuration) : "—"
+                )
+
+                RecordRow(
+                    name: L10n.text("Fastest pace", "Snelste tempo"),
+                    value: fastestPace.map { paceText(secondsPerUnit: $0) } ?? "—"
+                )
+
+                RecordRow(
+                    name: L10n.text("Most calories", "Meeste calorieën"),
+                    value: mostCalories > 0 ? "\(Int(mostCalories.rounded())) kcal" : "—"
+                )
+            } else {
+                let bestWeight = performances.map(\.weight).max() ?? 0
+                let bestRM = performances.map(\.oneRM).max() ?? 0
+                let maxVolume = performances.map(\.volume).max() ?? 0
+
+                RecordRow(
+                    name: L10n.text("Best weight", "Beste gewicht"),
+                    value: bestWeight > 0
+                        ? "\(AppPreferences.displayWeight(bestWeight).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)"
+                        : "—"
+                )
+
+                RecordRow(
+                    name: "Estimated 1RM",
+                    value: bestRM > 0
+                        ? "\(AppPreferences.displayWeight(bestRM).formatted(.number.precision(.fractionLength(0...1)))) \(AppPreferences.weightLabel)"
+                        : "—"
+                )
+
+                RecordRow(
+                    name: L10n.text("Max session volume", "Max sessievolume"),
+                    value: maxVolume > 0
+                        ? "\(Int(AppPreferences.displayVolume(maxVolume))) \(AppPreferences.weightLabel)"
+                        : "—"
+                )
+            }
         }
+    }
+
+    private func cardioPaceText(duration: Double, distanceKm: Double) -> String? {
+        guard duration > 0, distanceKm > 0 else { return nil }
+        let distance = AppPreferences.displayDistance(distanceKm)
+        guard distance > 0 else { return nil }
+        return paceText(secondsPerUnit: duration / distance)
+    }
+
+    private func paceText(secondsPerUnit: Double) -> String {
+        let minutes = Int(secondsPerUnit) / 60
+        let seconds = Int(secondsPerUnit) % 60
+        return "\(minutes):\(String(format: "%02d", seconds))/\(AppPreferences.distanceLabel)"
     }
 
     private var recordScopeLabel: String {
