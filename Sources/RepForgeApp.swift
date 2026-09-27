@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import Charts
 import AVKit
+import UIKit
 
 // MARK: - Theme
 
@@ -510,148 +511,154 @@ enum Metrics {
     }
 }
 
-// MARK: - Licensed exercise media (wger)
+// MARK: - Exercise media
 
-struct WgerExerciseResponse: Decodable {
-    let results: [WgerExercise]
+struct ExerciseDBGenderMedia: Decodable {
+    let male: String?
+    let female: String?
 }
 
-struct WgerExercise: Decodable {
-    let translations: [WgerTranslation]
-    let videos: [WgerVideo]
-    let images: [WgerImage]
-}
-
-struct WgerTranslation: Decodable {
+struct ExerciseDBItem: Decodable {
+    let id: String
     let name: String
+    let aliases: [String]?
+    let bodyPart: String?
+    let target: String?
+    let equipment: String?
+    let videos: ExerciseDBGenderMedia?
+    let thumbnails: ExerciseDBGenderMedia?
 }
 
-struct WgerVideo: Decodable, Identifiable {
-    let id: Int
-    let video: String
-    let isMain: Bool?
-    let licenseTitle: String?
-    let licenseObjectURL: String?
-    let licenseAuthor: String?
-    let licenseAuthorURL: String?
+struct ExerciseMedia {
+    let matchedName: String
+    let maleVideoURL: URL?
+    let femaleVideoURL: URL?
+    let maleThumbnailURL: URL?
+    let femaleThumbnailURL: URL?
+    let sourceName: String
+    let sourceURL: URL?
 
-    enum CodingKeys: String, CodingKey {
-        case id, video
-        case isMain = "is_main"
-        case licenseTitle = "license_title"
-        case licenseObjectURL = "license_object_url"
-        case licenseAuthor = "license_author"
-        case licenseAuthorURL = "license_author_url"
+    var hasBothGenders: Bool {
+        maleVideoURL != nil && femaleVideoURL != nil
     }
 }
 
-struct WgerImage: Decodable, Identifiable {
-    let id: Int
-    let image: String
-    let isMain: Bool?
-    let licenseTitle: String?
-    let licenseObjectURL: String?
-    let licenseAuthor: String?
-    let licenseAuthorURL: String?
+actor ExerciseMediaCatalog {
+    static let shared = ExerciseMediaCatalog()
 
-    enum CodingKeys: String, CodingKey {
-        case id, image
-        case isMain = "is_main"
-        case licenseTitle = "license_title"
-        case licenseObjectURL = "license_object_url"
-        case licenseAuthor = "license_author"
-        case licenseAuthorURL = "license_author_url"
-    }
-}
+    private var cached: [ExerciseDBItem]?
 
-struct LicensedExerciseMedia {
-    let videoURL: URL?
-    let imageURL: URL?
-    let licenseTitle: String?
-    let licenseURL: URL?
-    let author: String?
-    let authorURL: URL?
-    let matchedName: String?
-}
+    func exercises() async throws -> [ExerciseDBItem] {
+        if let cached { return cached }
 
-enum WgerMediaService {
-    static func media(for exercise: ExerciseDefinition) async throws -> LicensedExerciseMedia? {
-        var components = URLComponents(string: "https://wger.de/api/v2/exerciseinfo/")!
-        components.queryItems = [
-            URLQueryItem(name: "name__search", value: searchTerm(for: exercise)),
-            URLQueryItem(name: "language__code", value: "en"),
-            URLQueryItem(name: "limit", value: "8")
-        ]
-
-        guard let url = components.url else { return nil }
+        let url = URL(string: "https://raw.githubusercontent.com/luisaraujoc/free-exercise-db-api/main/data/exercises.json")!
         var request = URLRequest(url: url)
-        request.timeoutInterval = 12
+        request.timeoutInterval = 20
+        request.cachePolicy = .returnCacheDataElseLoad
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+
+        let decoded = try JSONDecoder().decode([ExerciseDBItem].self, from: data)
+        cached = decoded
+        return decoded
+    }
+}
+
+enum ExerciseMediaService {
+    static func media(for exercise: ExerciseDefinition) async throws -> ExerciseMedia? {
+        let items = try await ExerciseMediaCatalog.shared.exercises()
+        guard !items.isEmpty else { return nil }
+
+        let query = preferredSearchTerm(for: exercise)
+        let ranked = items
+            .map { ($0, score(item: $0, query: query, exercise: exercise)) }
+            .sorted { $0.1 > $1.1 }
+
+        guard let (best, bestScore) = ranked.first, bestScore >= 65 else {
             return nil
         }
 
-        let decoded = try JSONDecoder().decode(WgerExerciseResponse.self, from: data)
+        let maleVideo = best.videos?.male.flatMap(URL.init(string:))
+        let femaleVideo = best.videos?.female.flatMap(URL.init(string:))
+        let maleThumb = best.thumbnails?.male.flatMap(URL.init(string:))
+        let femaleThumb = best.thumbnails?.female.flatMap(URL.init(string:))
 
-        let candidates = decoded.results.sorted { lhs, rhs in
-            score(lhs, exercise: exercise) > score(rhs, exercise: exercise)
-        }
-
-        guard let result = candidates.first(where: { !$0.videos.isEmpty || !$0.images.isEmpty }) else {
+        guard maleVideo != nil || femaleVideo != nil || maleThumb != nil || femaleThumb != nil else {
             return nil
         }
 
-        let video = result.videos.first(where: { $0.isMain == true }) ?? result.videos.first
-        let image = result.images.first(where: { $0.isMain == true }) ?? result.images.first
-        let mediaLicenseTitle = video?.licenseTitle ?? image?.licenseTitle
-        let mediaLicenseURL = URL(string: video?.licenseObjectURL ?? image?.licenseObjectURL ?? "")
-        let mediaAuthor = video?.licenseAuthor ?? image?.licenseAuthor
-        let mediaAuthorURL = URL(string: video?.licenseAuthorURL ?? image?.licenseAuthorURL ?? "")
-        let matchedName = result.translations.first?.name
-
-        return LicensedExerciseMedia(
-            videoURL: URL(string: video?.video ?? ""),
-            imageURL: URL(string: image?.image ?? ""),
-            licenseTitle: mediaLicenseTitle,
-            licenseURL: mediaLicenseURL,
-            author: mediaAuthor,
-            authorURL: mediaAuthorURL,
-            matchedName: matchedName
+        return ExerciseMedia(
+            matchedName: best.name,
+            maleVideoURL: maleVideo,
+            femaleVideoURL: femaleVideo,
+            maleThumbnailURL: maleThumb,
+            femaleThumbnailURL: femaleThumb,
+            sourceName: "Free Exercise DB",
+            sourceURL: URL(string: "https://github.com/luisaraujoc/free-exercise-db-api")
         )
     }
 
-    private static func searchTerm(for exercise: ExerciseDefinition) -> String {
+    private static func preferredSearchTerm(for exercise: ExerciseDefinition) -> String {
         let explicit: [String: String] = [
-            "Barbell Flat Bench Press": "bench press",
-            "Bench Press (Barbell)": "bench press",
+            "Barbell Flat Bench Press": "barbell bench press",
+            "Bench Press (Barbell)": "barbell bench press",
             "Bench Press (Dumbbell)": "dumbbell bench press",
             "Bench Press (Smith Machine)": "smith machine bench press",
-            "Chest Supported Machine Row": "chest supported row",
+            "Incline Dumbbell Bench Press": "incline dumbbell bench press",
+            "Incline Bench Press (Dumbbell)": "incline dumbbell bench press",
+            "Flat Dumbbell Bench Press": "dumbbell bench press",
+            "Close-Grip Barbell Bench Press": "close grip bench press",
+            "Chest Supported Machine Row": "chest supported machine row",
             "Chest Supported Dumbbell Row": "chest supported dumbbell row",
-            "Dumbbell Shoulder Press (Seated)": "dumbbell shoulder press",
-            "Wide Grip Lat Pulldown": "lat pulldown",
-            "Lat Pulldown - Wide Grip": "lat pulldown",
-            "Neutral Grip Lat Pulldown": "lat pulldown",
+            "Dumbbell Shoulder Press (Seated)": "seated dumbbell shoulder press",
+            "Shoulder Press (Dumbbell)": "dumbbell shoulder press",
+            "Standing Barbell Overhead Press (Military Press)": "barbell overhead press",
+            "Arnold Dumbbell Press": "arnold press",
+            "Wide Grip Lat Pulldown": "wide grip lat pulldown",
+            "Lat Pulldown - Wide Grip": "wide grip lat pulldown",
+            "Neutral Grip Lat Pulldown": "neutral grip lat pulldown",
             "Seated Cable Row (V-Bar)": "seated cable row",
             "Cable Face Pull": "face pull",
-            "Captain's Chair Leg Raise": "leg raise",
-            "Lying Floor Leg Raises": "leg raise",
-            "Dumbbell Romanian Deadlift": "romanian deadlift",
-            "Romanian Deadlift (Barbell)": "romanian deadlift",
-            "Trap Bar Deadlift": "deadlift",
-            "Standing Barbell Overhead Press (Military Press)": "overhead press",
-            "Arnold Dumbbell Press": "arnold press",
-            "Cable Triceps Rope Pushdown": "triceps pushdown",
+            "Face Pull": "face pull",
+            "Captain's Chair Leg Raise": "captains chair leg raise",
+            "Lying Floor Leg Raises": "lying leg raise",
+            "Flat Leg Raise": "lying leg raise",
+            "Dumbbell Romanian Deadlift": "dumbbell romanian deadlift",
+            "Romanian Deadlift (Barbell)": "barbell romanian deadlift",
+            "Trap Bar Deadlift": "trap bar deadlift",
+            "Cable Triceps Rope Pushdown": "rope triceps pushdown",
             "Cable Triceps Straight Bar Pushdown": "triceps pushdown",
-            "Cable Overhead Triceps Rope Extension": "triceps extension",
-            "Lying Dumbbell Skull Crushers": "skull crusher",
-            "Lean-Away Cable Lateral Raise": "lateral raise",
-            "Reverse Pec Deck Machine": "reverse fly",
-            "Hack Squat Machine": "hack squat"
+            "Cable Overhead Triceps Rope Extension": "overhead cable triceps extension",
+            "Lying Dumbbell Skull Crushers": "dumbbell skull crusher",
+            "Lean-Away Cable Lateral Raise": "cable lateral raise",
+            "Lateral Raise (Cable)": "cable lateral raise",
+            "Standing Dumbbell Lateral Raise": "dumbbell lateral raise",
+            "Reverse Pec Deck Machine": "reverse pec deck",
+            "Hack Squat Machine": "hack squat",
+            "Leg Extension (Machine)": "leg extension",
+            "Lying Leg Curl": "lying leg curl",
+            "Leg Curl (Lying)": "lying leg curl",
+            "Seated Leg Curl Machine": "seated leg curl",
+            "Leg Curl (Seated)": "seated leg curl",
+            "Standing Calf Raise": "standing calf raise",
+            "Seated Calf Raise Machine": "seated calf raise",
+            "Kneeling Cable Crunch": "cable crunch",
+            "Single-Arm Dumbbell Row": "one arm dumbbell row",
+            "One Arm Dumbbell Row": "one arm dumbbell row",
+            "Dumbbell Walking Lunges": "dumbbell walking lunge",
+            "Walking Lunge": "walking lunge",
+            "EZ-Bar Biceps Curl": "ez bar curl",
+            "EZ-Bar Curl": "ez bar curl",
+            "Dumbbell Preacher Curl": "dumbbell preacher curl",
+            "Incline Dumbbell Curl": "incline dumbbell curl"
         ]
-        if let term = explicit[exercise.name] { return term }
+
+        if let explicit = explicit[exercise.name] { return explicit }
 
         return exercise.name
             .replacingOccurrences(of: #"\s*\([^)]*\)"#, with: "", options: .regularExpression)
@@ -659,20 +666,58 @@ enum WgerMediaService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func score(_ result: WgerExercise, exercise: ExerciseDefinition) -> Int {
-        let wanted = searchTerm(for: exercise).lowercased()
-        let names = result.translations.map { $0.name.lowercased() }
-        var value = result.videos.isEmpty ? 0 : 100
-        if names.contains(wanted) { value += 60 }
-        if names.contains(where: { $0.contains(wanted) || wanted.contains($0) }) { value += 30 }
-        if result.videos.contains(where: { $0.isMain == true }) { value += 10 }
-        return value
+    private static func normalize(_ value: String) -> String {
+        value
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+            .replacingOccurrences(of: "&", with: " and ")
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
+            .split(separator: " ")
+            .map(String.init)
+            .filter { !["the", "with", "machine", "exercise"].contains($0) }
+            .joined(separator: " ")
+    }
+
+    private static func score(item: ExerciseDBItem, query: String, exercise: ExerciseDefinition) -> Int {
+        let q = normalize(query)
+        let qTokens = Set(q.split(separator: " ").map(String.init))
+        let candidates = [item.name] + (item.aliases ?? [])
+
+        var best = 0
+        for candidate in candidates {
+            let n = normalize(candidate)
+            let nTokens = Set(n.split(separator: " ").map(String.init))
+            let intersection = qTokens.intersection(nTokens).count
+            let union = qTokens.union(nTokens).count
+            let similarity = union == 0 ? 0 : Int((Double(intersection) / Double(union)) * 100.0)
+
+            var local = similarity
+            if n == q { local += 140 }
+            else if n.contains(q) || q.contains(n) { local += 70 }
+
+            best = max(best, local)
+        }
+
+        if let bodyPart = item.bodyPart {
+            let body = normalize(bodyPart)
+            let appMuscle = normalize(exercise.muscle)
+            if body.contains(appMuscle) || appMuscle.contains(body) { best += 8 }
+        }
+
+        if let equipment = item.equipment {
+            let sourceEquipment = normalize(equipment)
+            let appEquipment = normalize(exercise.equipment)
+            if sourceEquipment.contains(appEquipment) || appEquipment.contains(sourceEquipment) { best += 10 }
+        }
+
+        if item.videos?.male != nil || item.videos?.female != nil { best += 12 }
+        return best
     }
 }
 
 @MainActor
 final class ExerciseMediaModel: ObservableObject {
-    @Published var media: LicensedExerciseMedia?
+    @Published var media: ExerciseMedia?
     @Published var isLoading = false
     @Published var loadFailed = false
 
@@ -682,7 +727,7 @@ final class ExerciseMediaModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            media = try await WgerMediaService.media(for: exercise)
+            media = try await ExerciseMediaService.media(for: exercise)
             loadFailed = media == nil
         } catch {
             media = nil
@@ -1606,33 +1651,41 @@ struct ExerciseDetailView: View {
 struct ExerciseDemoView: View {
     let exercise: ExerciseDefinition
     @StateObject private var model = ExerciseMediaModel()
+    @State private var gender = "Male"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Group {
                 if model.isLoading {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 22).fill(Color.white.opacity(0.95))
-                        ProgressView("Finding exercise demo…")
-                            .tint(RFTheme.accent)
-                            .foregroundStyle(Color.black.opacity(0.7))
+                        Color.black
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .tint(RFTheme.accent)
+                            Text("Loading HD exercise demo…")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.65))
+                        }
                     }
-                } else if let media = model.media, let videoURL = media.videoURL {
+                } else if let media = model.media,
+                          let videoURL = selectedVideoURL(media) {
                     LoopingExerciseVideo(url: videoURL)
-                } else if let media = model.media, let imageURL = media.imageURL {
+                } else if let media = model.media,
+                          let imageURL = selectedThumbnailURL(media) {
                     AsyncImage(url: imageURL) { phase in
                         switch phase {
                         case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFit()
-                                .padding(8)
-                                .background(Color.white)
+                            ZStack {
+                                Color.black
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                            }
                         case .failure:
                             mediaFallback
                         default:
                             ZStack {
-                                Color.white
+                                Color.black
                                 ProgressView().tint(RFTheme.accent)
                             }
                         }
@@ -1641,42 +1694,37 @@ struct ExerciseDemoView: View {
                     mediaFallback
                 }
             }
-            .frame(height: 270)
+            .frame(height: 255)
             .clipShape(RoundedRectangle(cornerRadius: 22))
-            .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.10)))
 
             if let media = model.media {
-                HStack(spacing: 6) {
-                    Image(systemName: "play.rectangle.fill")
-                    Text(media.matchedName.map { "Demo: \($0)" } ?? "Exercise demonstration")
-                    Spacer()
-                    Text("wger")
-                        .fontWeight(.semibold)
-                }
-                .font(.caption)
-                .foregroundStyle(RFTheme.muted)
-
-                if media.licenseTitle != nil || media.author != nil {
-                    HStack(spacing: 4) {
-                        Text("Media")
-                        if let author = media.author {
-                            if let url = media.authorURL {
-                                Link(author, destination: url)
-                            } else {
-                                Text("© \(author)")
-                            }
-                        }
-                        if let license = media.licenseTitle {
-                            Text("•")
-                            if let url = media.licenseURL {
-                                Link(license, destination: url)
-                            } else {
-                                Text(license)
-                            }
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(media.matchedName)
+                            .font(.caption.bold())
+                            .foregroundStyle(.white)
+                        if let sourceURL = media.sourceURL {
+                            Link("Demo source: \(media.sourceName)", destination: sourceURL)
+                                .font(.caption2)
+                                .foregroundStyle(RFTheme.muted)
+                        } else {
+                            Text("Demo source: \(media.sourceName)")
+                                .font(.caption2)
+                                .foregroundStyle(RFTheme.muted)
                         }
                     }
-                    .font(.caption2)
-                    .foregroundStyle(RFTheme.muted)
+
+                    Spacer()
+
+                    if media.hasBothGenders {
+                        Picker("Model", selection: $gender) {
+                            Text("M").tag("Male")
+                            Text("F").tag("Female")
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 88)
+                    }
                 }
             }
         }
@@ -1685,24 +1733,64 @@ struct ExerciseDemoView: View {
         }
     }
 
+    private func selectedVideoURL(_ media: ExerciseMedia) -> URL? {
+        if gender == "Female" {
+            return media.femaleVideoURL ?? media.maleVideoURL
+        }
+        return media.maleVideoURL ?? media.femaleVideoURL
+    }
+
+    private func selectedThumbnailURL(_ media: ExerciseMedia) -> URL? {
+        if gender == "Female" {
+            return media.femaleThumbnailURL ?? media.maleThumbnailURL
+        }
+        return media.maleThumbnailURL ?? media.femaleThumbnailURL
+    }
+
     private var mediaFallback: some View {
         ZStack {
             LinearGradient(
-                colors: [RFTheme.surface, RFTheme.raised],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                colors: [Color.black, RFTheme.surface],
+                startPoint: .top,
+                endPoint: .bottom
             )
-            VStack(spacing: 12) {
-                Image(systemName: "figure.strengthtraining.traditional")
-                    .font(.system(size: 54, weight: .medium))
-                    .foregroundStyle(RFTheme.accent)
-                Text("No licensed demo found")
+
+            VStack(spacing: 10) {
+                Image(systemName: "play.slash.fill")
+                    .font(.system(size: 42, weight: .semibold))
+                    .foregroundStyle(RFTheme.muted)
+                Text("No HD demo found for this exercise")
                     .font(.headline)
-                Text("Instructions and form cues are available below.")
+                Text("Form instructions are available below.")
                     .font(.caption)
                     .foregroundStyle(RFTheme.muted)
             }
         }
+    }
+}
+
+private final class PlayerLayerView: UIView {
+    override static var layerClass: AnyClass { AVPlayerLayer.self }
+
+    var playerLayer: AVPlayerLayer {
+        layer as! AVPlayerLayer
+    }
+}
+
+struct AVPlayerLayerContainer: UIViewRepresentable {
+    let player: AVPlayer
+
+    func makeUIView(context: Context) -> PlayerLayerView {
+        let view = PlayerLayerView()
+        view.backgroundColor = .black
+        view.playerLayer.player = player
+        view.playerLayer.videoGravity = .resizeAspect
+        return view
+    }
+
+    func updateUIView(_ uiView: PlayerLayerView, context: Context) {
+        uiView.playerLayer.player = player
+        uiView.playerLayer.videoGravity = .resizeAspect
     }
 }
 
@@ -1714,12 +1802,11 @@ struct LoopingExerciseVideo: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            Color.white
+            Color.black
 
             if let player {
-                VideoPlayer(player: player)
-                    .onAppear { player.play() }
-                    .onDisappear { player.pause() }
+                AVPlayerLayerContainer(player: player)
+                    .ignoresSafeArea()
             } else {
                 ProgressView()
                     .tint(RFTheme.accent)
@@ -1728,25 +1815,37 @@ struct LoopingExerciseVideo: View {
             Button {
                 guard let player else { return }
                 isPlaying.toggle()
-                isPlaying ? player.play() : player.pause()
+                if isPlaying {
+                    player.play()
+                } else {
+                    player.pause()
+                }
             } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.headline)
-                    .foregroundStyle(RFTheme.accent)
+                    .foregroundStyle(.white)
                     .frame(width: 48, height: 48)
-                    .background(.ultraThinMaterial)
+                    .background(.black.opacity(0.55))
                     .clipShape(RoundedRectangle(cornerRadius: 14))
             }
             .padding(12)
         }
         .task(id: url) {
+            player?.pause()
+
             let item = AVPlayerItem(url: url)
             let queue = AVQueuePlayer()
             queue.isMuted = true
+            queue.actionAtItemEnd = .none
+
             let loop = AVPlayerLooper(player: queue, templateItem: item)
             player = queue
             looper = loop
+            isPlaying = true
             queue.play()
+        }
+        .onDisappear {
+            player?.pause()
         }
     }
 }
