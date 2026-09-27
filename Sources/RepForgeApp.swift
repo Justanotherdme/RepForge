@@ -5262,8 +5262,27 @@ struct WorkoutSummaryView: View {
                     }
 
                     HStack {
-                        StatCard(title: L10n.text("Completed sets", "Voltooide sets"), value: "\(completedSets.count)", icon: "checkmark.circle.fill")
+                        StatCard(title: L10n.text("Completed entries", "Voltooide invoer"), value: "\(completedSets.count)", icon: "checkmark.circle.fill")
                         StatCard(title: L10n.text("PRs", "PR's"), value: "\(prs.count)", icon: "trophy.fill")
+                    }
+
+                    if session.totalCardioDistanceKm > 0 || session.totalCardioDurationSeconds > 0 {
+                        HStack {
+                            StatCard(
+                                title: L10n.text("Cardio distance", "Cardioafstand"),
+                                value: session.totalCardioDistanceKm > 0
+                                    ? "\(AppPreferences.displayDistance(session.totalCardioDistanceKm).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.distanceLabel)"
+                                    : "—",
+                                icon: "figure.run"
+                            )
+                            StatCard(
+                                title: L10n.text("Cardio time", "Cardiotijd"),
+                                value: session.totalCardioDurationSeconds > 0
+                                    ? cardioDurationText(session.totalCardioDurationSeconds)
+                                    : "—",
+                                icon: "timer"
+                            )
+                        }
                     }
 
                     MuscleHeatMapView(
@@ -5581,7 +5600,7 @@ struct HistoryView: View {
                 Text("•")
                 Text("\(session.exercises.count) \(L10n.text("exercises", "oefeningen"))")
                 Text("•")
-                Text("\(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel)")
+                Text(historyPrimaryMetric(session))
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -5591,6 +5610,22 @@ struct HistoryView: View {
                 .foregroundStyle(RFTheme.muted)
         }
         .padding(.vertical, 6)
+    }
+
+    private func historyPrimaryMetric(_ session: WorkoutSession) -> String {
+        if session.totalVolume > 0 {
+            return "\(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel)"
+        }
+
+        if session.totalCardioDistanceKm > 0 {
+            return "\(AppPreferences.displayDistance(session.totalCardioDistanceKm).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.distanceLabel)"
+        }
+
+        if session.totalCardioDurationSeconds > 0 {
+            return cardioDurationText(session.totalCardioDurationSeconds)
+        }
+
+        return "—"
     }
 
     private var periodLabel: String {
@@ -5906,24 +5941,87 @@ struct SessionDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(session.startedAt.formatted(date: .complete, time: .shortened))
+                                .font(.caption.bold())
+                                .foregroundStyle(RFTheme.muted)
+
+                            Label(
+                                GymProfileStore.profile(id: session.gymID).name,
+                                systemImage: "mappin.and.ellipse"
+                            )
+                            .font(.caption.bold())
+                            .foregroundStyle(RFTheme.accent)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.title)
+                            .foregroundStyle(RFTheme.success)
+                    }
+
+                    HStack {
+                        StatCard(
+                            title: L10n.text("Duration", "Duur"),
+                            value: durationString(session.duration),
+                            icon: "clock.fill"
+                        )
+
+                        if session.totalVolume > 0 {
+                            StatCard(
+                                title: L10n.text("Volume", "Volume"),
+                                value: "\(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel)",
+                                icon: "chart.bar.fill"
+                            )
+                        } else {
+                            StatCard(
+                                title: L10n.text("Entries", "Invoer"),
+                                value: "\(session.exercises.flatMap(\.sets).filter(\.completed).count)",
+                                icon: "checkmark.circle.fill"
+                            )
+                        }
+                    }
+
+                    if session.totalCardioDistanceKm > 0 || session.totalCardioDurationSeconds > 0 {
+                        HStack {
+                            StatCard(
+                                title: L10n.text("Cardio distance", "Cardioafstand"),
+                                value: session.totalCardioDistanceKm > 0
+                                    ? "\(AppPreferences.displayDistance(session.totalCardioDistanceKm).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.distanceLabel)"
+                                    : "—",
+                                icon: "figure.run"
+                            )
+                            StatCard(
+                                title: L10n.text("Cardio time", "Cardiotijd"),
+                                value: session.totalCardioDurationSeconds > 0
+                                    ? cardioDurationText(session.totalCardioDurationSeconds)
+                                    : "—",
+                                icon: "timer"
+                            )
+                        }
+                    }
+                }
+                .padding()
+                .background(RFTheme.heroGradient)
+                .clipShape(RoundedRectangle(cornerRadius: 22))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22)
+                        .stroke(RFTheme.cardBorder)
+                )
+
                 if let note = session.note, !note.isEmpty {
                     Label(note, systemImage: "note.text")
                         .padding()
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(RFTheme.surface)
                         .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
-
-                Label(
-                    GymProfileStore.profile(id: session.gymID).name,
-                    systemImage: "mappin.and.ellipse"
-                )
-                .font(.caption.bold())
-                .foregroundStyle(RFTheme.accent)
-
-                HStack {
-                    StatCard(title: L10n.text("Duration", "Duur"), value: durationString(session.duration), icon: "clock.fill")
-                    StatCard(title: L10n.text("Volume", "Volume"), value: "\(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel)", icon: "chart.bar.fill")
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14)
+                                .stroke(RFTheme.cardBorder)
+                        )
                 }
 
                 if let previousComparable {
@@ -5931,39 +6029,74 @@ struct SessionDetailView: View {
                 }
 
                 ForEach(session.exercises.sorted(by: { $0.order < $1.order })) { log in
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise")
-                            .font(.headline)
-                            .foregroundStyle(RFTheme.accent)
+                    let ex = ExerciseCatalog.find(log.exerciseID)
 
-                        ForEach(log.sets.filter(\.completed).sorted(by: { $0.order < $1.order })) { set in
-                            HStack {
-                                Text("Set \(set.order + 1)")
-                                Spacer()
-                                VStack(alignment: .trailing, spacing: 2) {
-                                    Text("\(AppPreferences.displayWeight(set.weightKg).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel) × \(set.reps)")
-                                        .bold()
-                                    HStack(spacing: 6) {
-                                        if set.setType != "working" {
-                                            Text(set.setType.capitalized)
-                                        }
-                                        if let rpe = set.rpe {
-                                            Text("RPE \(rpe.formatted(.number.precision(.fractionLength(0...1))))")
-                                        }
-                                        if let rir = set.rir {
-                                            Text("RIR \(rir)")
-                                        }
-                                    }
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                }
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 11)
+                                    .fill(RFTheme.accent.opacity(0.12))
+                                Image(systemName: ex?.movement == "cardio" ? "figure.run" : "dumbbell.fill")
+                                    .foregroundStyle(RFTheme.accent)
                             }
-                            .font(.subheadline)
+                            .frame(width: 38, height: 38)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(ex?.name ?? "Exercise")
+                                    .font(.headline)
+                                Text(ex?.movement == "cardio"
+                                     ? L10n.text("Cardio", "Cardio")
+                                     : "\(log.sets.filter(\.completed).count) \(L10n.text("completed sets", "voltooide sets"))")
+                                    .font(.caption)
+                                    .foregroundStyle(RFTheme.muted)
+                            }
+
+                            Spacer()
+                        }
+
+                        if ex?.movement == "cardio" {
+                            ForEach(log.sets.filter(\.completed).sorted(by: { $0.order < $1.order })) { set in
+                                CardioHistoryEntry(set: set)
+                            }
+                        } else {
+                            ForEach(log.sets.filter(\.completed).sorted(by: { $0.order < $1.order })) { set in
+                                HStack {
+                                    Text("\(L10n.text("Set", "Set")) \(set.order + 1)")
+                                        .foregroundStyle(RFTheme.muted)
+
+                                    Spacer()
+
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        Text("\(AppPreferences.displayWeight(set.weightKg).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel) × \(set.reps)")
+                                            .bold()
+
+                                        HStack(spacing: 6) {
+                                            if set.setType != "working" {
+                                                Text(set.setType.capitalized)
+                                            }
+                                            if let rpe = set.rpe {
+                                                Text("RPE \(rpe.formatted(.number.precision(.fractionLength(0...1))))")
+                                            }
+                                            if let rir = set.rir {
+                                                Text("RIR \(rir)")
+                                            }
+                                        }
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .font(.subheadline)
+                                .padding(.vertical, 4)
+                            }
                         }
                     }
                     .padding()
                     .background(RFTheme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18)
+                            .stroke(RFTheme.cardBorder)
+                    )
                 }
             }
             .padding()
@@ -5971,6 +6104,103 @@ struct SessionDetailView: View {
         .background(RFTheme.bg)
         .navigationTitle(session.title)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct CardioHistoryEntry: View {
+    let set: WorkoutSet
+
+    var body: some View {
+        VStack(spacing: 7) {
+            HStack {
+                Text("\(L10n.text("Interval", "Interval")) \(set.order + 1)")
+                    .font(.caption.bold())
+                    .foregroundStyle(RFTheme.muted)
+                Spacer()
+                if let paceText {
+                    Label(paceText, systemImage: "speedometer")
+                        .font(.caption.bold())
+                        .foregroundStyle(RFTheme.accent)
+                }
+            }
+
+            HStack(spacing: 12) {
+                if let duration = set.durationSeconds, duration > 0 {
+                    historyMetric(
+                        icon: "clock",
+                        value: cardioDurationText(duration),
+                        label: L10n.text("Time", "Tijd")
+                    )
+                }
+
+                if let distance = set.distanceKm, distance > 0 {
+                    historyMetric(
+                        icon: "figure.run",
+                        value: "\(AppPreferences.displayDistance(distance).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.distanceLabel)",
+                        label: L10n.text("Distance", "Afstand")
+                    )
+                }
+
+                if let calories = set.calories, calories > 0 {
+                    historyMetric(
+                        icon: "flame.fill",
+                        value: "\(Int(calories.rounded()))",
+                        label: "kcal"
+                    )
+                }
+
+                if let hr = set.averageHeartRate, hr > 0 {
+                    historyMetric(
+                        icon: "heart.fill",
+                        value: "\(hr)",
+                        label: "bpm"
+                    )
+                }
+            }
+
+            if let incline = set.inclinePercent, incline > 0 {
+                HStack {
+                    Label(
+                        "\(L10n.text("Incline", "Helling")) \(incline.formatted(.number.precision(.fractionLength(0...1))))%",
+                        systemImage: "mountain.2"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(RFTheme.muted)
+                    Spacer()
+                }
+            }
+        }
+        .padding(10)
+        .background(RFTheme.field.opacity(0.65))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var paceText: String? {
+        guard let duration = set.durationSeconds,
+              let distanceKm = set.distanceKm,
+              duration > 0,
+              distanceKm > 0 else { return nil }
+
+        let distance = AppPreferences.displayDistance(distanceKm)
+        let secondsPerUnit = duration / distance
+        let minutes = Int(secondsPerUnit) / 60
+        let seconds = Int(secondsPerUnit) % 60
+        return "\(minutes):\(String(format: "%02d", seconds))/\(AppPreferences.distanceLabel)"
+    }
+
+    private func historyMetric(icon: String, value: String, label: String) -> some View {
+        VStack(spacing: 2) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(RFTheme.accent)
+            Text(value)
+                .font(.caption.bold())
+                .lineLimit(1)
+            Text(label)
+                .font(.system(size: 9))
+                .foregroundStyle(RFTheme.muted)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
