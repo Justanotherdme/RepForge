@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import Charts
+import AVKit
 
 // MARK: - Theme
 
@@ -506,6 +507,187 @@ enum Metrics {
         guard weight > 0, reps > 0 else { return 0 }
         if reps == 1 { return weight }
         return weight * (1 + Double(reps) / 30.0)
+    }
+}
+
+// MARK: - Licensed exercise media (wger)
+
+struct WgerExerciseResponse: Decodable {
+    let results: [WgerExercise]
+}
+
+struct WgerExercise: Decodable {
+    let translations: [WgerTranslation]
+    let videos: [WgerVideo]
+    let images: [WgerImage]
+}
+
+struct WgerTranslation: Decodable {
+    let name: String
+}
+
+struct WgerVideo: Decodable, Identifiable {
+    let id: Int
+    let video: String
+    let isMain: Bool?
+    let licenseTitle: String?
+    let licenseObjectURL: String?
+    let licenseAuthor: String?
+    let licenseAuthorURL: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, video
+        case isMain = "is_main"
+        case licenseTitle = "license_title"
+        case licenseObjectURL = "license_object_url"
+        case licenseAuthor = "license_author"
+        case licenseAuthorURL = "license_author_url"
+    }
+}
+
+struct WgerImage: Decodable, Identifiable {
+    let id: Int
+    let image: String
+    let isMain: Bool?
+    let licenseTitle: String?
+    let licenseObjectURL: String?
+    let licenseAuthor: String?
+    let licenseAuthorURL: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, image
+        case isMain = "is_main"
+        case licenseTitle = "license_title"
+        case licenseObjectURL = "license_object_url"
+        case licenseAuthor = "license_author"
+        case licenseAuthorURL = "license_author_url"
+    }
+}
+
+struct LicensedExerciseMedia {
+    let videoURL: URL?
+    let imageURL: URL?
+    let licenseTitle: String?
+    let licenseURL: URL?
+    let author: String?
+    let authorURL: URL?
+    let matchedName: String?
+}
+
+enum WgerMediaService {
+    static func media(for exercise: ExerciseDefinition) async throws -> LicensedExerciseMedia? {
+        var components = URLComponents(string: "https://wger.de/api/v2/exerciseinfo/")!
+        components.queryItems = [
+            URLQueryItem(name: "name__search", value: searchTerm(for: exercise)),
+            URLQueryItem(name: "language__code", value: "en"),
+            URLQueryItem(name: "limit", value: "8")
+        ]
+
+        guard let url = components.url else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            return nil
+        }
+
+        let decoded = try JSONDecoder().decode(WgerExerciseResponse.self, from: data)
+
+        let candidates = decoded.results.sorted { lhs, rhs in
+            score(lhs, exercise: exercise) > score(rhs, exercise: exercise)
+        }
+
+        guard let result = candidates.first(where: { !$0.videos.isEmpty || !$0.images.isEmpty }) else {
+            return nil
+        }
+
+        let video = result.videos.first(where: { $0.isMain == true }) ?? result.videos.first
+        let image = result.images.first(where: { $0.isMain == true }) ?? result.images.first
+        let mediaLicenseTitle = video?.licenseTitle ?? image?.licenseTitle
+        let mediaLicenseURL = URL(string: video?.licenseObjectURL ?? image?.licenseObjectURL ?? "")
+        let mediaAuthor = video?.licenseAuthor ?? image?.licenseAuthor
+        let mediaAuthorURL = URL(string: video?.licenseAuthorURL ?? image?.licenseAuthorURL ?? "")
+        let matchedName = result.translations.first?.name
+
+        return LicensedExerciseMedia(
+            videoURL: URL(string: video?.video ?? ""),
+            imageURL: URL(string: image?.image ?? ""),
+            licenseTitle: mediaLicenseTitle,
+            licenseURL: mediaLicenseURL,
+            author: mediaAuthor,
+            authorURL: mediaAuthorURL,
+            matchedName: matchedName
+        )
+    }
+
+    private static func searchTerm(for exercise: ExerciseDefinition) -> String {
+        let explicit: [String: String] = [
+            "Barbell Flat Bench Press": "bench press",
+            "Bench Press (Barbell)": "bench press",
+            "Bench Press (Dumbbell)": "dumbbell bench press",
+            "Bench Press (Smith Machine)": "smith machine bench press",
+            "Chest Supported Machine Row": "chest supported row",
+            "Chest Supported Dumbbell Row": "chest supported dumbbell row",
+            "Dumbbell Shoulder Press (Seated)": "dumbbell shoulder press",
+            "Wide Grip Lat Pulldown": "lat pulldown",
+            "Lat Pulldown - Wide Grip": "lat pulldown",
+            "Neutral Grip Lat Pulldown": "lat pulldown",
+            "Seated Cable Row (V-Bar)": "seated cable row",
+            "Cable Face Pull": "face pull",
+            "Captain's Chair Leg Raise": "leg raise",
+            "Lying Floor Leg Raises": "leg raise",
+            "Dumbbell Romanian Deadlift": "romanian deadlift",
+            "Romanian Deadlift (Barbell)": "romanian deadlift",
+            "Trap Bar Deadlift": "deadlift",
+            "Standing Barbell Overhead Press (Military Press)": "overhead press",
+            "Arnold Dumbbell Press": "arnold press",
+            "Cable Triceps Rope Pushdown": "triceps pushdown",
+            "Cable Triceps Straight Bar Pushdown": "triceps pushdown",
+            "Cable Overhead Triceps Rope Extension": "triceps extension",
+            "Lying Dumbbell Skull Crushers": "skull crusher",
+            "Lean-Away Cable Lateral Raise": "lateral raise",
+            "Reverse Pec Deck Machine": "reverse fly",
+            "Hack Squat Machine": "hack squat"
+        ]
+        if let term = explicit[exercise.name] { return term }
+
+        return exercise.name
+            .replacingOccurrences(of: #"\s*\([^)]*\)"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "-", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func score(_ result: WgerExercise, exercise: ExerciseDefinition) -> Int {
+        let wanted = searchTerm(for: exercise).lowercased()
+        let names = result.translations.map { $0.name.lowercased() }
+        var value = result.videos.isEmpty ? 0 : 100
+        if names.contains(wanted) { value += 60 }
+        if names.contains(where: { $0.contains(wanted) || wanted.contains($0) }) { value += 30 }
+        if result.videos.contains(where: { $0.isMain == true }) { value += 10 }
+        return value
+    }
+}
+
+@MainActor
+final class ExerciseMediaModel: ObservableObject {
+    @Published var media: LicensedExerciseMedia?
+    @Published var isLoading = false
+    @Published var loadFailed = false
+
+    func load(exercise: ExerciseDefinition) async {
+        isLoading = true
+        loadFailed = false
+        defer { isLoading = false }
+
+        do {
+            media = try await WgerMediaService.media(for: exercise)
+            loadFailed = media == nil
+        } catch {
+            media = nil
+            loadFailed = true
+        }
     }
 }
 
@@ -1423,236 +1605,148 @@ struct ExerciseDetailView: View {
 
 struct ExerciseDemoView: View {
     let exercise: ExerciseDefinition
+    @StateObject private var model = ExerciseMediaModel()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Group {
+                if model.isLoading {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 22).fill(Color.white.opacity(0.95))
+                        ProgressView("Finding exercise demo…")
+                            .tint(RFTheme.accent)
+                            .foregroundStyle(Color.black.opacity(0.7))
+                    }
+                } else if let media = model.media, let videoURL = media.videoURL {
+                    LoopingExerciseVideo(url: videoURL)
+                } else if let media = model.media, let imageURL = media.imageURL {
+                    AsyncImage(url: imageURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFit()
+                                .padding(8)
+                                .background(Color.white)
+                        case .failure:
+                            mediaFallback
+                        default:
+                            ZStack {
+                                Color.white
+                                ProgressView().tint(RFTheme.accent)
+                            }
+                        }
+                    }
+                } else {
+                    mediaFallback
+                }
+            }
+            .frame(height: 270)
+            .clipShape(RoundedRectangle(cornerRadius: 22))
+            .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.12)))
+
+            if let media = model.media {
+                HStack(spacing: 6) {
+                    Image(systemName: "play.rectangle.fill")
+                    Text(media.matchedName.map { "Demo: \($0)" } ?? "Exercise demonstration")
+                    Spacer()
+                    Text("wger")
+                        .fontWeight(.semibold)
+                }
+                .font(.caption)
+                .foregroundStyle(RFTheme.muted)
+
+                if media.licenseTitle != nil || media.author != nil {
+                    HStack(spacing: 4) {
+                        Text("Media")
+                        if let author = media.author {
+                            if let url = media.authorURL {
+                                Link(author, destination: url)
+                            } else {
+                                Text("© \(author)")
+                            }
+                        }
+                        if let license = media.licenseTitle {
+                            Text("•")
+                            if let url = media.licenseURL {
+                                Link(license, destination: url)
+                            } else {
+                                Text(license)
+                            }
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(RFTheme.muted)
+                }
+            }
+        }
+        .task(id: exercise.id) {
+            await model.load(exercise: exercise)
+        }
+    }
+
+    private var mediaFallback: some View {
+        ZStack {
+            LinearGradient(
+                colors: [RFTheme.surface, RFTheme.raised],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            VStack(spacing: 12) {
+                Image(systemName: "figure.strengthtraining.traditional")
+                    .font(.system(size: 54, weight: .medium))
+                    .foregroundStyle(RFTheme.accent)
+                Text("No licensed demo found")
+                    .font(.headline)
+                Text("Instructions and form cues are available below.")
+                    .font(.caption)
+                    .foregroundStyle(RFTheme.muted)
+            }
+        }
+    }
+}
+
+struct LoopingExerciseVideo: View {
+    let url: URL
+    @State private var player: AVQueuePlayer?
+    @State private var looper: AVPlayerLooper?
     @State private var isPlaying = true
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            RoundedRectangle(cornerRadius: 22)
-                .fill(Color.white)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22)
-                        .stroke(Color.black.opacity(0.12), lineWidth: 1)
-                )
+            Color.white
 
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying)) { timeline in
-                let t = timeline.date.timeIntervalSinceReferenceDate
-                let phase = CGFloat((sin(t * 2.6) + 1) / 2)
-                ExerciseFigureCanvas(exercise: exercise, phase: phase)
-                    .padding(12)
+            if let player {
+                VideoPlayer(player: player)
+                    .onAppear { player.play() }
+                    .onDisappear { player.pause() }
+            } else {
+                ProgressView()
+                    .tint(RFTheme.accent)
             }
 
             Button {
+                guard let player else { return }
                 isPlaying.toggle()
+                isPlaying ? player.play() : player.pause()
             } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.headline)
                     .foregroundStyle(RFTheme.accent)
-                    .frame(width: 52, height: 52)
-                    .background(RFTheme.accent.opacity(0.16))
+                    .frame(width: 48, height: 48)
+                    .background(.ultraThinMaterial)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
             }
-            .padding(14)
+            .padding(12)
         }
-        .frame(height: 260)
-        .accessibilityLabel("\(exercise.name) animated exercise demonstration")
-    }
-}
-
-struct ExerciseFigureCanvas: View {
-    let exercise: ExerciseDefinition
-    let phase: CGFloat
-
-    var body: some View {
-        Canvas { context, size in
-            let w = size.width
-            let h = size.height
-            let cx = w * 0.50
-            let cy = h * 0.51
-
-            drawEquipment(context: &context, size: size)
-
-            let isBench = exercise.name.localizedCaseInsensitiveContains("bench") ||
-                          exercise.name.localizedCaseInsensitiveContains("skull")
-            let isPulldown = exercise.name.localizedCaseInsensitiveContains("pulldown")
-            let isRow = exercise.name.localizedCaseInsensitiveContains("row")
-            let isLegPress = exercise.name.localizedCaseInsensitiveContains("leg press")
-            let isCurl = exercise.movement == "curl"
-            let isSquat = exercise.movement == "squat"
-            let isHinge = exercise.movement == "hinge"
-            let isRaise = exercise.movement == "raise"
-            let isCore = exercise.movement == "core"
-
-            let bodyColor = Color(red: 0.74, green: 0.75, blue: 0.76)
-            let outline = Color(red: 0.33, green: 0.34, blue: 0.36)
-            let muscle = Color(red: 0.94, green: 0.28, blue: 0.10)
-
-            func stroke(_ a: CGPoint, _ b: CGPoint, width: CGFloat = 15, color: Color = bodyColor) {
-                var p = Path()
-                p.move(to: a)
-                p.addLine(to: b)
-                context.stroke(p, with: .color(outline), style: StrokeStyle(lineWidth: width + 3, lineCap: .round))
-                context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: width, lineCap: .round))
-            }
-
-            func joint(_ p: CGPoint, r: CGFloat = 9, color: Color = bodyColor) {
-                context.fill(Path(ellipseIn: CGRect(x: p.x-r, y: p.y-r, width: r*2, height: r*2)), with: .color(outline))
-                context.fill(Path(ellipseIn: CGRect(x: p.x-r+2, y: p.y-r+2, width: r*2-4, height: r*2-4)), with: .color(color))
-            }
-
-            if isBench {
-                let torsoY = cy + 8
-                let head = CGPoint(x: cx - 76, y: torsoY - 2)
-                let shoulder = CGPoint(x: cx - 45, y: torsoY)
-                let hip = CGPoint(x: cx + 30, y: torsoY + 8)
-                let knee = CGPoint(x: cx + 68, y: torsoY + 46)
-                let foot = CGPoint(x: cx + 80, y: torsoY + 92)
-
-                context.fill(Path(ellipseIn: CGRect(x: head.x-15, y: head.y-15, width: 30, height: 30)), with: .color(bodyColor))
-                stroke(shoulder, hip, width: 24)
-                stroke(hip, knee, width: 17)
-                stroke(knee, foot, width: 15)
-
-                let barY = torsoY - 52 + phase * 40
-                let leftHand = CGPoint(x: cx - 34, y: barY)
-                let rightHand = CGPoint(x: cx + 28, y: barY)
-                stroke(shoulder, leftHand, width: 13)
-                stroke(CGPoint(x: cx - 5, y: torsoY), rightHand, width: 13)
-
-                var bar = Path()
-                bar.move(to: CGPoint(x: cx - 92, y: barY))
-                bar.addLine(to: CGPoint(x: cx + 90, y: barY))
-                context.stroke(bar, with: .color(.black), style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                context.fill(Path(ellipseIn: CGRect(x: cx-98, y: barY-18, width: 12, height: 36)), with: .color(.black))
-                context.fill(Path(ellipseIn: CGRect(x: cx+86, y: barY-18, width: 12, height: 36)), with: .color(.black))
-
-                drawMuscleHighlight(context: &context, center: CGPoint(x: cx-15, y: torsoY-3), muscle: exercise.muscle, color: muscle, horizontal: true)
-                joint(leftHand, r: 7)
-                joint(rightHand, r: 7)
-            } else if isLegPress {
-                let hip = CGPoint(x: cx-30, y: cy+20)
-                let shoulder = CGPoint(x: cx-65, y: cy-45)
-                let head = CGPoint(x: cx-78, y: cy-80)
-                let knee = CGPoint(x: cx+15 + phase*34, y: cy+2 - phase*18)
-                let foot = CGPoint(x: cx+75, y: cy-55)
-
-                context.fill(Path(ellipseIn: CGRect(x: head.x-14, y: head.y-14, width: 28, height: 28)), with: .color(bodyColor))
-                stroke(shoulder, hip, width: 23)
-                stroke(hip, knee, width: 18)
-                stroke(knee, foot, width: 16)
-                drawMuscleHighlight(context: &context, center: CGPoint(x: (hip.x+knee.x)/2, y: (hip.y+knee.y)/2), muscle: exercise.muscle, color: muscle, horizontal: false)
-            } else {
-                let squatDrop = isSquat ? phase * 45 : 0
-                let hingeShift = isHinge ? phase * 34 : 0
-                let torsoLean = isHinge ? phase * 36 : 0
-                let head = CGPoint(x: cx + torsoLean*0.45, y: cy - 88 + squatDrop)
-                let shoulder = CGPoint(x: cx + torsoLean*0.4, y: cy - 52 + squatDrop)
-                let hip = CGPoint(x: cx + hingeShift, y: cy + 8 + squatDrop)
-                let kneeL = CGPoint(x: cx - 24 + (isSquat ? phase*28 : 0), y: cy + 62 + squatDrop*0.35)
-                let kneeR = CGPoint(x: cx + 24 + (isSquat ? phase*20 : 0), y: cy + 62 + squatDrop*0.35)
-                let footL = CGPoint(x: cx - 42, y: cy + 110)
-                let footR = CGPoint(x: cx + 42, y: cy + 110)
-
-                context.fill(Path(ellipseIn: CGRect(x: head.x-15, y: head.y-15, width: 30, height: 30)), with: .color(bodyColor))
-                stroke(shoulder, hip, width: 25)
-                stroke(hip, kneeL, width: 17)
-                stroke(kneeL, footL, width: 15)
-                stroke(hip, kneeR, width: 17)
-                stroke(kneeR, footR, width: 15)
-
-                let armLift: CGFloat
-                if isPulldown { armLift = -68 + phase*75 }
-                else if isRaise { armLift = -phase*62 }
-                else if isCurl { armLift = 8 - phase*50 }
-                else if isRow { armLift = 12 - phase*24 }
-                else if exercise.movement == "press" { armLift = -20 - phase*68 }
-                else if isCore { armLift = -15 + phase*18 }
-                else { armLift = -4 }
-
-                let handL = CGPoint(x: cx - 58 + (isRow ? phase*34 : 0), y: cy - 28 + squatDrop + armLift)
-                let handR = CGPoint(x: cx + 58 - (isRow ? phase*34 : 0), y: cy - 28 + squatDrop + armLift)
-                stroke(shoulder, handL, width: 13)
-                stroke(shoulder, handR, width: 13)
-
-                if exercise.equipment == "Dumbbell" || exercise.equipment == "EZ-Bar" {
-                    drawWeight(context: &context, at: handL)
-                    drawWeight(context: &context, at: handR)
-                } else if exercise.equipment == "Barbell" || exercise.equipment == "Trap Bar" {
-                    var bar = Path()
-                    bar.move(to: CGPoint(x: handL.x-18, y: handL.y))
-                    bar.addLine(to: CGPoint(x: handR.x+18, y: handR.y))
-                    context.stroke(bar, with: .color(.black), style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                }
-
-                drawMuscleHighlight(context: &context, center: muscleCenter(muscleName: exercise.muscle, shoulder: shoulder, hip: hip, knee: kneeR), muscle: exercise.muscle, color: muscle, horizontal: true)
-            }
-        }
-    }
-
-    private func muscleCenter(muscleName: String, shoulder: CGPoint, hip: CGPoint, knee: CGPoint) -> CGPoint {
-        switch muscleName {
-        case "Chest": return CGPoint(x: shoulder.x, y: shoulder.y + 18)
-        case "Shoulders": return CGPoint(x: shoulder.x, y: shoulder.y)
-        case "Biceps", "Triceps", "Forearms": return CGPoint(x: shoulder.x + 28, y: shoulder.y + 14)
-        case "Quadriceps", "Hamstrings", "Glutes", "Adductors": return CGPoint(x: (hip.x+knee.x)/2, y: (hip.y+knee.y)/2)
-        case "Calves": return CGPoint(x: knee.x+8, y: knee.y+28)
-        case "Core": return CGPoint(x: hip.x, y: hip.y-26)
-        default: return CGPoint(x: shoulder.x, y: shoulder.y+26)
-        }
-    }
-
-    private func drawMuscleHighlight(context: inout GraphicsContext, center: CGPoint, muscle: String, color: Color, horizontal: Bool) {
-        let wide = ["Chest", "Back", "Shoulders"].contains(muscle)
-        let rect = CGRect(
-            x: center.x - (wide ? 24 : 14),
-            y: center.y - (wide ? 12 : 19),
-            width: wide ? 48 : 28,
-            height: wide ? 24 : 38
-        )
-        context.fill(Path(ellipseIn: rect), with: .color(color.opacity(0.88)))
-    }
-
-    private func drawWeight(context: inout GraphicsContext, at p: CGPoint) {
-        var bar = Path()
-        bar.move(to: CGPoint(x: p.x-12, y: p.y))
-        bar.addLine(to: CGPoint(x: p.x+12, y: p.y))
-        context.stroke(bar, with: .color(.black), style: StrokeStyle(lineWidth: 4, lineCap: .round))
-        context.fill(Path(roundedRect: CGRect(x: p.x-16, y: p.y-9, width: 6, height: 18), cornerRadius: 2), with: .color(.black))
-        context.fill(Path(roundedRect: CGRect(x: p.x+10, y: p.y-9, width: 6, height: 18), cornerRadius: 2), with: .color(.black))
-    }
-
-    private func drawEquipment(context: inout GraphicsContext, size: CGSize) {
-        let w = size.width
-        let h = size.height
-        let name = exercise.name.lowercased()
-
-        if name.contains("bench") || name.contains("skull") {
-            let bench = CGRect(x: w*0.20, y: h*0.61, width: w*0.60, height: 14)
-            context.fill(Path(roundedRect: bench, cornerRadius: 6), with: .color(Color.gray.opacity(0.65)))
-            var legs = Path()
-            legs.move(to: CGPoint(x: w*0.28, y: h*0.64))
-            legs.addLine(to: CGPoint(x: w*0.24, y: h*0.88))
-            legs.move(to: CGPoint(x: w*0.72, y: h*0.64))
-            legs.addLine(to: CGPoint(x: w*0.76, y: h*0.88))
-            context.stroke(legs, with: .color(.gray), style: StrokeStyle(lineWidth: 8, lineCap: .round))
-        }
-
-        if name.contains("smith") || exercise.equipment == "Machine" {
-            var frame = Path()
-            frame.move(to: CGPoint(x: w*0.16, y: h*0.12))
-            frame.addLine(to: CGPoint(x: w*0.16, y: h*0.88))
-            frame.move(to: CGPoint(x: w*0.84, y: h*0.12))
-            frame.addLine(to: CGPoint(x: w*0.84, y: h*0.88))
-            frame.move(to: CGPoint(x: w*0.16, y: h*0.12))
-            frame.addLine(to: CGPoint(x: w*0.84, y: h*0.12))
-            context.stroke(frame, with: .color(.gray.opacity(0.75)), style: StrokeStyle(lineWidth: 7, lineCap: .round))
-        }
-
-        if name.contains("pulldown") || name.contains("cable") || exercise.equipment == "Cable" {
-            var cable = Path()
-            cable.move(to: CGPoint(x: w*0.78, y: h*0.10))
-            cable.addLine(to: CGPoint(x: w*0.78, y: h*0.86))
-            context.stroke(cable, with: .color(.gray.opacity(0.7)), style: StrokeStyle(lineWidth: 6))
-            context.fill(Path(roundedRect: CGRect(x: w*0.74, y: h*0.60, width: w*0.08, height: h*0.20), cornerRadius: 5), with: .color(.black.opacity(0.7)))
+        .task(id: url) {
+            let item = AVPlayerItem(url: url)
+            let queue = AVQueuePlayer()
+            queue.isMuted = true
+            let loop = AVPlayerLooper(player: queue, templateItem: item)
+            player = queue
+            looper = loop
+            queue.play()
         }
     }
 }
