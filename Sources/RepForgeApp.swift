@@ -8272,8 +8272,11 @@ struct SettingsView: View {
     }
 
     private func csvNumber(_ value: Double) -> String {
-        String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), value)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "0").inverted.inverted)
+        value.formatted(
+            .number
+                .locale(Locale(identifier: "en_US_POSIX"))
+                .precision(.fractionLength(0...3))
+        )
     }
 
     private func optionalCSVNumber(_ value: Double?) -> String {
