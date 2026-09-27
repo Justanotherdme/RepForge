@@ -11,6 +11,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Generate RepForge app icon
+        run: swift Scripts/generate_app_icon.swift
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project
