@@ -228,12 +228,12 @@ Bench Press (Smith Machine)|Chest|Machine|press
 
 // MARK: - Built-in 3-week program
 
-struct ProgramExercise: Hashable {
-    let name: String
-    let sets: Int
-    let reps: String
-    let note: String?
-    let superset: String?
+struct ProgramExercise: Hashable, Codable {
+    var name: String
+    var sets: Int
+    var reps: String
+    var note: String?
+    var superset: String?
 
     init(_ name: String, _ sets: Int, _ reps: String, note: String? = nil, superset: String? = nil) {
         self.name = name
@@ -244,13 +244,13 @@ struct ProgramExercise: Hashable {
     }
 }
 
-struct ProgramDay: Identifiable, Hashable {
+struct ProgramDay: Identifiable, Hashable, Codable {
     let id: String
     let week: Int
-    let day: String
-    let partner: String
-    let focus: String
-    let exercises: [ProgramExercise]
+    var day: String
+    var partner: String
+    var focus: String
+    var exercises: [ProgramExercise]
 
     var title: String { "Week \(week) • \(day)" }
 }
@@ -356,6 +356,48 @@ enum BuiltInProgram {
     }
 }
 
+@MainActor
+final class ProgramPlanStore: ObservableObject {
+    @Published private(set) var customDays: [String: ProgramDay] = [:]
+
+    private let defaultsKey = "repforge.program.customDays.v1"
+
+    init() {
+        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+              let decoded = try? JSONDecoder().decode([String: ProgramDay].self, from: data) else {
+            return
+        }
+        customDays = decoded
+    }
+
+    func day(for base: ProgramDay) -> ProgramDay {
+        customDays[base.id] ?? base
+    }
+
+    func days(for week: Int) -> [ProgramDay] {
+        BuiltInProgram.week(week).map(day(for:))
+    }
+
+    func isCustomized(_ day: ProgramDay) -> Bool {
+        customDays[day.id] != nil
+    }
+
+    func save(_ day: ProgramDay) {
+        customDays[day.id] = day
+        persist()
+    }
+
+    func reset(_ day: ProgramDay) {
+        customDays.removeValue(forKey: day.id)
+        persist()
+    }
+
+    private func persist() {
+        guard let data = try? JSONEncoder().encode(customDays) else { return }
+        UserDefaults.standard.set(data, forKey: defaultsKey)
+    }
+}
+
 // MARK: - Persistence
 
 @Model
@@ -363,18 +405,32 @@ final class WorkoutTemplate {
     var id: UUID
     var name: String
     var exerciseIDsCSV: String
+    var planJSON: String?
     var createdAt: Date
 
-    init(name: String, exerciseIDs: [String]) {
+    init(name: String, exerciseIDs: [String], plan: [ProgramExercise]? = nil) {
         self.id = UUID()
         self.name = name
         self.exerciseIDsCSV = exerciseIDs.joined(separator: ",")
+        self.planJSON = Self.encodePlan(plan)
         self.createdAt = .now
     }
 
     var exerciseIDs: [String] {
         get { exerciseIDsCSV.split(separator: ",").map(String.init).filter { !$0.isEmpty } }
         set { exerciseIDsCSV = newValue.joined(separator: ",") }
+    }
+
+    var plannedExercises: [ProgramExercise]? {
+        guard let planJSON,
+              let data = planJSON.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode([ProgramExercise].self, from: data)
+    }
+
+    private static func encodePlan(_ plan: [ProgramExercise]?) -> String? {
+        guard let plan,
+              let data = try? JSONEncoder().encode(plan) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }
 
@@ -801,7 +857,10 @@ struct StartWorkoutView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \WorkoutTemplate.createdAt, order: .reverse) private var templates: [WorkoutTemplate]
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var sessions: [WorkoutSession]
+    @StateObject private var programStore = ProgramPlanStore()
     @State private var showTemplateEditor = false
+    @State private var templateSeed: ProgramDay?
+    @State private var editingProgramDay: ProgramDay?
     @State private var activeSession: WorkoutSession?
     @State private var selectedProgramWeek = 1
 
@@ -827,6 +886,7 @@ struct StartWorkoutView: View {
                         Text("Templates").font(.largeTitle.bold())
                         Spacer()
                         Button {
+                            templateSeed = nil
                             showTemplateEditor = true
                         } label: {
                             Label("Template", systemImage: "plus")
@@ -844,7 +904,7 @@ struct StartWorkoutView: View {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 165), spacing: 14)], spacing: 14) {
                             ForEach(templates) { template in
                                 TemplateCard(template: template) {
-                                    activeSession = createSession(title: template.name, exerciseIDs: template.exerciseIDs)
+                                    activeSession = createSession(template: template)
                                 } onDelete: {
                                     context.delete(template)
                                     try? context.save()
@@ -867,10 +927,24 @@ struct StartWorkoutView: View {
                             .frame(width: 150)
                         }
 
-                        ForEach(BuiltInProgram.week(selectedProgramWeek)) { day in
-                            ProgramDayCard(day: day) {
-                                activeSession = createSession(day: day)
-                            }
+                        ForEach(programStore.days(for: selectedProgramWeek)) { day in
+                            ProgramDayCard(
+                                day: day,
+                                isCustomized: programStore.isCustomized(day),
+                                onStart: {
+                                    activeSession = createSession(day: day)
+                                },
+                                onEdit: {
+                                    editingProgramDay = day
+                                },
+                                onSaveAsTemplate: {
+                                    templateSeed = day
+                                    showTemplateEditor = true
+                                },
+                                onReset: {
+                                    programStore.reset(day)
+                                }
+                            )
                         }
                     }
 
@@ -890,7 +964,12 @@ struct StartWorkoutView: View {
             .background(RFTheme.bg)
             .navigationTitle("Start Workout")
             .sheet(isPresented: $showTemplateEditor) {
-                TemplateEditorView()
+                TemplateEditorView(prefill: templateSeed)
+            }
+            .sheet(item: $editingProgramDay) { day in
+                ProgramDayEditorView(day: day) { updated in
+                    programStore.save(updated)
+                }
             }
             .fullScreenCover(item: $activeSession) { session in
                 ActiveWorkoutView(session: session)
@@ -910,6 +989,28 @@ struct StartWorkoutView: View {
         context.insert(session)
         try? context.save()
         return session
+    }
+
+    private func createSession(template: WorkoutTemplate) -> WorkoutSession {
+        if let plan = template.plannedExercises, !plan.isEmpty {
+            let logs = plan.enumerated().compactMap { index, item -> ExerciseLog? in
+                guard let exercise = ExerciseCatalog.findByName(item.name) else { return nil }
+                return ExerciseLog(
+                    exerciseID: exercise.id,
+                    order: index,
+                    targetReps: item.reps,
+                    coachingNote: item.note,
+                    supersetGroup: item.superset,
+                    sets: (0..<max(1, item.sets)).map { WorkoutSet(order: $0) }
+                )
+            }
+            let session = WorkoutSession(title: template.name, exercises: logs)
+            context.insert(session)
+            try? context.save()
+            return session
+        }
+
+        return createSession(title: template.name, exerciseIDs: template.exerciseIDs)
     }
 
     private func createSession(day: ProgramDay) -> WorkoutSession {
@@ -933,25 +1034,58 @@ struct StartWorkoutView: View {
 
 struct ProgramDayCard: View {
     let day: ProgramDay
+    let isCustomized: Bool
     let onStart: () -> Void
+    let onEdit: () -> Void
+    let onSaveAsTemplate: () -> Void
+    let onReset: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(day.day).font(.headline)
+                    HStack(spacing: 7) {
+                        Text(day.day).font(.headline)
+                        if isCustomized {
+                            Text("Edited")
+                                .font(.caption2.bold())
+                                .foregroundStyle(RFTheme.accent)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(RFTheme.accent.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                    }
                     Text(day.focus).font(.subheadline).foregroundStyle(RFTheme.accent)
                     Text(day.partner.capitalized).font(.caption).foregroundStyle(RFTheme.muted)
                 }
+
                 Spacer()
-                Button("Start", action: onStart)
-                    .buttonStyle(.borderedProminent)
-                    .tint(RFTheme.accent)
+
+                Menu {
+                    Button(action: onEdit) {
+                        Label("Edit Workout", systemImage: "pencil")
+                    }
+                    Button(action: onSaveAsTemplate) {
+                        Label("Add to New Template", systemImage: "rectangle.stack.badge.plus")
+                    }
+                    if isCustomized {
+                        Button(role: .destructive, action: onReset) {
+                            Label("Reset to Original", systemImage: "arrow.counterclockwise")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.headline)
+                        .frame(width: 38, height: 38)
+                        .background(RFTheme.raised)
+                        .clipShape(RoundedRectangle(cornerRadius: 11))
+                }
             }
 
             ForEach(Array(day.exercises.enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    if let group = item.superset {
+                    if let group = item.superset, !group.isEmpty {
                         Text("SS \(group)")
                             .font(.caption2.bold())
                             .foregroundStyle(RFTheme.accent)
@@ -969,11 +1103,139 @@ struct ProgramDayCard: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            HStack(spacing: 10) {
+                Button("Start", action: onStart)
+                    .buttonStyle(.borderedProminent)
+                    .tint(RFTheme.accent)
+
+                Button(action: onEdit) {
+                    Label("Edit", systemImage: "pencil")
+                }
+                .buttonStyle(.bordered)
+
+                Button(action: onSaveAsTemplate) {
+                    Label("Template", systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+            }
         }
         .padding()
         .background(RFTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.08)))
+    }
+}
+
+struct ProgramDayEditorView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: ProgramDay
+    @State private var showPicker = false
+    @State private var pickerIDs: [String] = []
+    let onSave: (ProgramDay) -> Void
+
+    init(day: ProgramDay, onSave: @escaping (ProgramDay) -> Void) {
+        _draft = State(initialValue: day)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Workout") {
+                    TextField("Day", text: $draft.day)
+                    TextField("Focus", text: $draft.focus)
+                    TextField("Training partner / note", text: $draft.partner)
+                }
+
+                Section("Exercises") {
+                    ForEach(draft.exercises.indices, id: \.self) { index in
+                        ProgramExerciseEditorRow(item: $draft.exercises[index])
+                    }
+                    .onDelete { offsets in
+                        draft.exercises.remove(atOffsets: offsets)
+                    }
+                    .onMove { source, destination in
+                        draft.exercises.move(fromOffsets: source, toOffset: destination)
+                    }
+
+                    Button {
+                        pickerIDs = []
+                        showPicker = true
+                    } label: {
+                        Label("Add Exercises", systemImage: "plus")
+                    }
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+            .scrollContentBackground(.hidden)
+            .background(RFTheme.bg)
+            .navigationTitle("Edit \(draft.title)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(draft)
+                        dismiss()
+                    }
+                    .bold()
+                    .disabled(draft.exercises.isEmpty)
+                }
+            }
+            .sheet(isPresented: $showPicker, onDismiss: addPickedExercises) {
+                ExercisePickerView(selectedIDs: $pickerIDs)
+            }
+        }
+    }
+
+    private func addPickedExercises() {
+        let existing = Set(draft.exercises.map(\.name))
+        for id in pickerIDs {
+            guard let exercise = ExerciseCatalog.find(id),
+                  !existing.contains(exercise.name) else { continue }
+            draft.exercises.append(ProgramExercise(exercise.name, 3, "8–12"))
+        }
+        pickerIDs = []
+    }
+}
+
+struct ProgramExerciseEditorRow: View {
+    @Binding var item: ProgramExercise
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(item.name)
+                .font(.headline)
+
+            HStack(spacing: 14) {
+                Stepper("Sets \(item.sets)", value: $item.sets, in: 1...10)
+
+                TextField("Reps", text: $item.reps)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 86)
+                    .multilineTextAlignment(.center)
+            }
+
+            HStack {
+                TextField("Note (optional)", text: Binding(
+                    get: { item.note ?? "" },
+                    set: { item.note = $0.isEmpty ? nil : $0 }
+                ))
+                .textFieldStyle(.roundedBorder)
+
+                TextField("SS", text: Binding(
+                    get: { item.superset ?? "" },
+                    set: { item.superset = $0.isEmpty ? nil : $0.uppercased() }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 62)
+                .multilineTextAlignment(.center)
+            }
+        }
+        .padding(.vertical, 5)
     }
 }
 
@@ -1004,7 +1266,7 @@ struct TemplateCard: View {
                 .font(.headline)
                 .lineLimit(2)
 
-            Text(template.exerciseIDs.compactMap(ExerciseCatalog.find).map(\.name).joined(separator: ", "))
+            Text((template.plannedExercises?.map(\.name) ?? template.exerciseIDs.compactMap(ExerciseCatalog.find).map(\.name)).joined(separator: ", "))
                 .font(.caption)
                 .foregroundStyle(RFTheme.muted)
                 .lineLimit(4)
@@ -1025,9 +1287,21 @@ struct TemplateCard: View {
 struct TemplateEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
-    @State private var name = "New Template"
-    @State private var selectedIDs: [String] = []
+    @State private var name: String
+    @State private var items: [ProgramExercise]
     @State private var showPicker = false
+    @State private var pickerIDs: [String] = []
+
+    init(prefill: ProgramDay? = nil) {
+        let defaultName: String
+        if let prefill {
+            defaultName = "\(prefill.day) — \(prefill.focus)"
+        } else {
+            defaultName = "New Template"
+        }
+        _name = State(initialValue: defaultName)
+        _items = State(initialValue: prefill?.exercises ?? [])
+    }
 
     var body: some View {
         NavigationStack {
@@ -1037,27 +1311,25 @@ struct TemplateEditorView: View {
                 }
 
                 Section("Exercises") {
-                    ForEach(Array(selectedIDs.enumerated()), id: \.element) { index, id in
-                        if let ex = ExerciseCatalog.find(id) {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(ex.name).font(.headline)
-                                    Text(ex.muscle).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Text("\(index + 1)").foregroundStyle(.secondary)
-                            }
-                        }
+                    ForEach(items.indices, id: \.self) { index in
+                        ProgramExerciseEditorRow(item: $items[index])
                     }
-                    .onDelete { selectedIDs.remove(atOffsets: $0) }
+                    .onDelete { offsets in
+                        items.remove(atOffsets: offsets)
+                    }
+                    .onMove { source, destination in
+                        items.move(fromOffsets: source, toOffset: destination)
+                    }
 
                     Button {
+                        pickerIDs = []
                         showPicker = true
                     } label: {
                         Label("Add Exercises", systemImage: "plus")
                     }
                 }
             }
+            .environment(\.editMode, .constant(.active))
             .scrollContentBackground(.hidden)
             .background(RFTheme.bg)
             .navigationTitle("New Template")
@@ -1067,18 +1339,36 @@ struct TemplateEditorView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        context.insert(WorkoutTemplate(name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Workout" : name, exerciseIDs: selectedIDs))
+                        let ids = items.compactMap { ExerciseCatalog.findByName($0.name)?.id }
+                        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                        context.insert(
+                            WorkoutTemplate(
+                                name: cleanName.isEmpty ? "Workout" : cleanName,
+                                exerciseIDs: ids,
+                                plan: items
+                            )
+                        )
                         try? context.save()
                         dismiss()
                     }
                     .bold()
-                    .disabled(selectedIDs.isEmpty)
+                    .disabled(items.isEmpty)
                 }
             }
-            .sheet(isPresented: $showPicker) {
-                ExercisePickerView(selectedIDs: $selectedIDs)
+            .sheet(isPresented: $showPicker, onDismiss: addPickedExercises) {
+                ExercisePickerView(selectedIDs: $pickerIDs)
             }
         }
+    }
+
+    private func addPickedExercises() {
+        let existing = Set(items.map(\.name))
+        for id in pickerIDs {
+            guard let exercise = ExerciseCatalog.find(id),
+                  !existing.contains(exercise.name) else { continue }
+            items.append(ProgramExercise(exercise.name, 3, "8–12"))
+        }
+        pickerIDs = []
     }
 }
 
