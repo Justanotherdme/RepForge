@@ -5257,8 +5257,31 @@ struct WorkoutSummaryView: View {
                     .frame(maxWidth: .infinity)
 
                     HStack {
-                        StatCard(title: L10n.text("Duration", "Duur"), value: durationString(session.duration), icon: "clock.fill")
-                        StatCard(title: L10n.text("Volume", "Volume"), value: "\(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel)", icon: "chart.bar.fill")
+                        StatCard(
+                            title: L10n.text("Duration", "Duur"),
+                            value: durationString(session.duration),
+                            icon: "clock.fill"
+                        )
+
+                        if session.totalVolume > 0 {
+                            StatCard(
+                                title: L10n.text("Volume", "Volume"),
+                                value: "\(Int(AppPreferences.displayVolume(session.totalVolume))) \(AppPreferences.weightLabel)",
+                                icon: "chart.bar.fill"
+                            )
+                        } else if session.totalCardioDistanceKm > 0 {
+                            StatCard(
+                                title: L10n.text("Distance", "Afstand"),
+                                value: "\(AppPreferences.displayDistance(session.totalCardioDistanceKm).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.distanceLabel)",
+                                icon: "figure.run"
+                            )
+                        } else {
+                            StatCard(
+                                title: L10n.text("Entries", "Invoer"),
+                                value: "\(completedSets.count)",
+                                icon: "checkmark.circle.fill"
+                            )
+                        }
                     }
 
                     HStack {
@@ -6259,16 +6282,26 @@ struct WorkoutComparisonCard: View {
             }
 
             HStack {
+                if current.totalVolume > 0 || previous.totalVolume > 0 {
+                    comparisonMetric(
+                        title: L10n.text("Volume", "Volume"),
+                        value: signedWeight(volumeDelta),
+                        positive: volumeDelta >= 0
+                    )
+                } else {
+                    comparisonMetric(
+                        title: L10n.text("Distance", "Afstand"),
+                        value: signedDistance(current.totalCardioDistanceKm - previous.totalCardioDistanceKm),
+                        positive: current.totalCardioDistanceKm >= previous.totalCardioDistanceKm
+                    )
+                }
+
                 comparisonMetric(
-                    title: L10n.text("Volume", "Volume"),
-                    value: signedWeight(volumeDelta),
-                    positive: volumeDelta >= 0
-                )
-                comparisonMetric(
-                    title: L10n.text("Sets", "Sets"),
+                    title: L10n.text("Entries", "Invoer"),
                     value: signedInt(setDelta),
                     positive: setDelta >= 0
                 )
+
                 comparisonMetric(
                     title: L10n.text("Time", "Tijd"),
                     value: signedDuration(durationDelta),
@@ -6312,6 +6345,12 @@ struct WorkoutComparisonCard: View {
         let displayed = AppPreferences.displayWeight(abs(kg))
         let sign = kg > 0 ? "+" : kg < 0 ? "−" : "±"
         return "\(sign)\(displayed.formatted(.number.precision(.fractionLength(0...1)))) \(AppPreferences.weightLabel)"
+    }
+
+    private func signedDistance(_ km: Double) -> String {
+        let displayed = AppPreferences.displayDistance(abs(km))
+        let sign = km > 0 ? "+" : km < 0 ? "−" : "±"
+        return "\(sign)\(displayed.formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.distanceLabel)"
     }
 
     private func signedInt(_ value: Int) -> String {
