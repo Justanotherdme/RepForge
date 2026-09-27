@@ -157,6 +157,46 @@ Rowing|Cardio|Cardio|cardio
 Stair Climber|Cardio|Cardio|cardio
 Elliptical|Cardio|Cardio|cardio
 Jump Rope|Cardio|Other|cardio
+Barbell Flat Bench Press|Chest|Barbell|press
+Chest Supported Machine Row|Back|Machine|pull
+Lying Leg Curl|Hamstrings|Machine|curl
+Cable Triceps Rope Pushdown|Triceps|Cable|extension
+Dumbbell Shoulder Press (Seated)|Shoulders|Dumbbell|press
+Dumbbell Romanian Deadlift|Hamstrings|Dumbbell|hinge
+Wide Grip Lat Pulldown|Back|Cable|pull
+Standing Dumbbell Biceps Curl|Biceps|Dumbbell|curl
+Cable Face Pull|Shoulders|Cable|pull
+Seated Cable Row (V-Bar)|Back|Cable|pull
+Incline Dumbbell Bench Press|Chest|Dumbbell|press
+Standing Dumbbell Lateral Raise|Shoulders|Dumbbell|raise
+Cable Overhead Triceps Rope Extension|Triceps|Cable|extension
+Reverse Pec Deck Machine|Shoulders|Machine|raise
+Captain's Chair Leg Raise|Core|Bodyweight|core
+Hack Squat Machine|Quadriceps|Machine|squat
+Single-Arm Dumbbell Row|Back|Dumbbell|pull
+Seated Leg Curl Machine|Hamstrings|Machine|curl
+Cable Triceps Straight Bar Pushdown|Triceps|Cable|extension
+Standing Barbell Overhead Press (Military Press)|Shoulders|Barbell|press
+Trap Bar Deadlift|Full Body|Trap Bar|hinge
+Neutral Grip Lat Pulldown|Back|Cable|pull
+Dumbbell Walking Lunges|Quadriceps|Dumbbell|squat
+Cable Biceps Curl|Biceps|Cable|curl
+Chest Supported Dumbbell Row|Back|Dumbbell|pull
+Assisted Dip Machine|Chest|Machine|press
+Bench Dips|Triceps|Bodyweight|extension
+Seated Calf Raise Machine|Calves|Machine|raise
+Lean-Away Cable Lateral Raise|Shoulders|Cable|raise
+EZ-Bar Biceps Curl|Biceps|EZ-Bar|curl
+Kneeling Cable Crunch|Core|Cable|core
+EZ-Bar Reverse Curl|Forearms|EZ-Bar|curl
+Arnold Dumbbell Press|Shoulders|Dumbbell|press
+Flat Dumbbell Bench Press|Chest|Dumbbell|press
+Close-Grip Barbell Bench Press|Triceps|Barbell|press
+Dumbbell Preacher Curl|Biceps|Dumbbell|curl
+Incline Bench Spider Curl|Biceps|Dumbbell|curl
+Lying Dumbbell Skull Crushers|Triceps|Dumbbell|extension
+Lying Floor Leg Raises|Core|Bodyweight|core
+Bench Press (Smith Machine)|Chest|Machine|press
 """
         return rows.split(separator: "\n").enumerated().compactMap { index, raw in
             let p = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
@@ -175,8 +215,142 @@ Jump Rope|Cardio|Other|cardio
         all.first { $0.id == id }
     }
 
+    static func findByName(_ name: String) -> ExerciseDefinition? {
+        all.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
     static var muscles: [String] {
         Array(Set(all.map(\.muscle))).sorted()
+    }
+}
+
+// MARK: - Built-in 3-week program
+
+struct ProgramExercise: Hashable {
+    let name: String
+    let sets: Int
+    let reps: String
+    let note: String?
+    let superset: String?
+
+    init(_ name: String, _ sets: Int, _ reps: String, note: String? = nil, superset: String? = nil) {
+        self.name = name
+        self.sets = sets
+        self.reps = reps
+        self.note = note
+        self.superset = superset
+    }
+}
+
+struct ProgramDay: Identifiable, Hashable {
+    let id: String
+    let week: Int
+    let day: String
+    let partner: String
+    let focus: String
+    let exercises: [ProgramExercise]
+
+    var title: String { "Week \(week) • \(day)" }
+}
+
+enum BuiltInProgram {
+    static let days: [ProgramDay] = [
+        ProgramDay(id: "w1-mon", week: 1, day: "Monday", partner: "with friend", focus: "Chest Strength & Quads", exercises: [
+            .init("Barbell Flat Bench Press", 3, "6–8"),
+            .init("Leg Press", 3, "8–10", note: "Beginner-friendly quad focus"),
+            .init("Chest Supported Machine Row", 3, "8–10"),
+            .init("Lying Leg Curl", 3, "10–12"),
+            .init("Cable Triceps Rope Pushdown", 3, "12–15", superset: "A"),
+            .init("Lateral Raise (Cable)", 3, "12–15", superset: "A")
+        ]),
+        ProgramDay(id: "w1-wed", week: 1, day: "Wednesday", partner: "with brother", focus: "Shoulders & Hamstrings", exercises: [
+            .init("Dumbbell Shoulder Press (Seated)", 3, "8–10"),
+            .init("Dumbbell Romanian Deadlift", 3, "8–10"),
+            .init("Wide Grip Lat Pulldown", 3, "8–10"),
+            .init("Leg Extension (Machine)", 3, "10–12"),
+            .init("Standing Dumbbell Biceps Curl", 3, "12–15", superset: "A"),
+            .init("Cable Face Pull", 3, "12–15", superset: "A")
+        ]),
+        ProgramDay(id: "w1-fri", week: 1, day: "Friday", partner: "with friend", focus: "Chest Volume & Upper Back", exercises: [
+            .init("Barbell Flat Bench Press", 3, "8–10", note: "Lighter load, controlled reps"),
+            .init("Goblet Squat", 3, "10–12"),
+            .init("Seated Cable Row (V-Bar)", 3, "8–10"),
+            .init("Incline Dumbbell Bench Press", 3, "10–12"),
+            .init("Standing Calf Raise", 4, "12–15")
+        ]),
+        ProgramDay(id: "w1-bonus", week: 1, day: "Bonus Day", partner: "with brother", focus: "Arms & Shoulders", exercises: [
+            .init("Standing Dumbbell Lateral Raise", 4, "12–15"),
+            .init("Incline Dumbbell Curl", 3, "10–12"),
+            .init("Cable Overhead Triceps Rope Extension", 3, "10–12"),
+            .init("Reverse Pec Deck Machine", 3, "15"),
+            .init("Captain's Chair Leg Raise", 3, "12–15")
+        ]),
+
+        ProgramDay(id: "w2-mon", week: 2, day: "Monday", partner: "with friend", focus: "Chest & Hamstrings Focus", exercises: [
+            .init("Barbell Flat Bench Press", 3, "6–8"),
+            .init("Hack Squat Machine", 3, "8–10"),
+            .init("Single-Arm Dumbbell Row", 3, "8–10", note: "Per side"),
+            .init("Seated Leg Curl Machine", 3, "10–12"),
+            .init("Hammer Curl", 3, "10–12", superset: "A"),
+            .init("Cable Triceps Straight Bar Pushdown", 3, "10–12", superset: "A")
+        ]),
+        ProgramDay(id: "w2-wed", week: 2, day: "Wednesday", partner: "with brother", focus: "Upper Body & Quads", exercises: [
+            .init("Standing Barbell Overhead Press (Military Press)", 3, "6–8"),
+            .init("Trap Bar Deadlift", 3, "6–8"),
+            .init("Neutral Grip Lat Pulldown", 3, "8–10"),
+            .init("Dumbbell Walking Lunges", 3, "10/leg"),
+            .init("Cable Biceps Curl", 3, "12–15", superset: "A"),
+            .init("Lateral Raise (Cable)", 3, "12–15", superset: "A")
+        ]),
+        ProgramDay(id: "w2-fri", week: 2, day: "Friday", partner: "with friend", focus: "Chest Pump & Back Thickness", exercises: [
+            .init("Incline Dumbbell Bench Press", 3, "8–10"),
+            .init("Leg Press", 3, "10–12"),
+            .init("Chest Supported Dumbbell Row", 3, "10–12"),
+            .init("Assisted Dip Machine", 3, "8–10", note: "Bench Dips can be used as an alternative"),
+            .init("Seated Calf Raise Machine", 4, "12–15")
+        ]),
+        ProgramDay(id: "w2-bonus", week: 2, day: "Bonus Day", partner: "with brother", focus: "Pump & Core", exercises: [
+            .init("Lean-Away Cable Lateral Raise", 4, "12–15"),
+            .init("EZ-Bar Biceps Curl", 3, "10–12"),
+            .init("Cable Triceps Rope Pushdown", 3, "10–12"),
+            .init("Cable Face Pull", 3, "15"),
+            .init("Kneeling Cable Crunch", 3, "12–15")
+        ]),
+
+        ProgramDay(id: "w3-mon", week: 3, day: "Monday", partner: "with friend", focus: "Strength & Focus", exercises: [
+            .init("Barbell Flat Bench Press", 3, "6"),
+            .init("Goblet Squat", 3, "8–10", note: "Use a heavier dumbbell"),
+            .init("Seated Cable Row", 3, "8–10", note: "Neutral grip"),
+            .init("Dumbbell Romanian Deadlift", 3, "10–12"),
+            .init("Triceps Pushdown", 3, "10–12", superset: "A"),
+            .init("EZ-Bar Reverse Curl", 3, "10–12", superset: "A")
+        ]),
+        ProgramDay(id: "w3-wed", week: 3, day: "Wednesday", partner: "with brother", focus: "Shoulders & Back Width", exercises: [
+            .init("Arnold Dumbbell Press", 3, "8–10"),
+            .init("Romanian Deadlift (Barbell)", 3, "8–10"),
+            .init("Wide Grip Lat Pulldown", 3, "8–10"),
+            .init("Leg Extension (Machine)", 3, "12–15"),
+            .init("Hammer Curl", 3, "12–15", superset: "A"),
+            .init("Cable Face Pull", 3, "12–15", superset: "A")
+        ]),
+        ProgramDay(id: "w3-fri", week: 3, day: "Friday", partner: "with friend", focus: "Chest & Triceps Volume", exercises: [
+            .init("Flat Dumbbell Bench Press", 3, "8–10"),
+            .init("Close-Grip Barbell Bench Press", 3, "8–10"),
+            .init("Chest Supported Machine Row", 3, "10–12"),
+            .init("Leg Press", 3, "10–12"),
+            .init("Standing Calf Raise", 4, "12–15")
+        ]),
+        ProgramDay(id: "w3-bonus", week: 3, day: "Bonus Day", partner: "with brother", focus: "Shoulder & Arm Burnout", exercises: [
+            .init("Standing Dumbbell Lateral Raise", 4, "12–15"),
+            .init("Dumbbell Preacher Curl", 3, "10–12", note: "Incline bench spider curl is an alternative"),
+            .init("Lying Dumbbell Skull Crushers", 3, "10–12"),
+            .init("Reverse Pec Deck Machine", 3, "15"),
+            .init("Lying Floor Leg Raises", 3, "15")
+        ])
+    ]
+
+    static func week(_ week: Int) -> [ProgramDay] {
+        days.filter { $0.week == week }
     }
 }
 
@@ -232,13 +406,26 @@ final class ExerciseLog {
     var id: UUID
     var exerciseID: String
     var order: Int
+    var targetReps: String?
+    var coachingNote: String?
+    var supersetGroup: String?
     @Relationship(deleteRule: .cascade)
     var sets: [WorkoutSet]
 
-    init(exerciseID: String, order: Int, sets: [WorkoutSet] = []) {
+    init(
+        exerciseID: String,
+        order: Int,
+        targetReps: String? = nil,
+        coachingNote: String? = nil,
+        supersetGroup: String? = nil,
+        sets: [WorkoutSet] = []
+    ) {
         self.id = UUID()
         self.exerciseID = exerciseID
         self.order = order
+        self.targetReps = targetReps
+        self.coachingNote = coachingNote
+        self.supersetGroup = supersetGroup
         self.sets = sets
     }
 }
@@ -389,6 +576,7 @@ struct StartWorkoutView: View {
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var sessions: [WorkoutSession]
     @State private var showTemplateEditor = false
     @State private var activeSession: WorkoutSession?
+    @State private var selectedProgramWeek = 1
 
     var body: some View {
         NavigationStack {
@@ -438,6 +626,27 @@ struct StartWorkoutView: View {
                         }
                     }
 
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Your 3-Week Program")
+                                .font(.title2.bold())
+                            Spacer()
+                            Picker("Week", selection: $selectedProgramWeek) {
+                                Text("W1").tag(1)
+                                Text("W2").tag(2)
+                                Text("W3").tag(3)
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(width: 150)
+                        }
+
+                        ForEach(BuiltInProgram.week(selectedProgramWeek)) { day in
+                            ProgramDayCard(day: day) {
+                                activeSession = createSession(day: day)
+                            }
+                        }
+                    }
+
                     if let current = sessions.first(where: { $0.endedAt == nil }) {
                         Button {
                             activeSession = current
@@ -474,6 +683,70 @@ struct StartWorkoutView: View {
         context.insert(session)
         try? context.save()
         return session
+    }
+
+    private func createSession(day: ProgramDay) -> WorkoutSession {
+        let logs = day.exercises.enumerated().compactMap { index, item -> ExerciseLog? in
+            guard let exercise = ExerciseCatalog.findByName(item.name) else { return nil }
+            return ExerciseLog(
+                exerciseID: exercise.id,
+                order: index,
+                targetReps: item.reps,
+                coachingNote: item.note,
+                supersetGroup: item.superset,
+                sets: (0..<item.sets).map { WorkoutSet(order: $0) }
+            )
+        }
+        let session = WorkoutSession(title: "\(day.title) — \(day.focus)", exercises: logs)
+        context.insert(session)
+        try? context.save()
+        return session
+    }
+}
+
+struct ProgramDayCard: View {
+    let day: ProgramDay
+    let onStart: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(day.day).font(.headline)
+                    Text(day.focus).font(.subheadline).foregroundStyle(RFTheme.accent)
+                    Text(day.partner.capitalized).font(.caption).foregroundStyle(RFTheme.muted)
+                }
+                Spacer()
+                Button("Start", action: onStart)
+                    .buttonStyle(.borderedProminent)
+                    .tint(RFTheme.accent)
+            }
+
+            ForEach(Array(day.exercises.enumerated()), id: \.offset) { _, item in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if let group = item.superset {
+                        Text("SS \(group)")
+                            .font(.caption2.bold())
+                            .foregroundStyle(RFTheme.accent)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(RFTheme.accent.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                    Text(item.name)
+                        .font(.caption)
+                        .lineLimit(1)
+                    Spacer()
+                    Text("\(item.sets) × \(item.reps)")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding()
+        .background(RFTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.08)))
     }
 }
 
@@ -757,9 +1030,25 @@ struct WorkoutExerciseBlock: View {
                             Text(ex.name)
                                 .font(.title3.bold())
                                 .foregroundStyle(RFTheme.accent)
-                            Text(best > 0 ? "Best: \(best.formatted(.number.precision(.fractionLength(0...2)))) kg" : "No previous best")
-                                .font(.caption)
-                                .foregroundStyle(RFTheme.muted)
+                            HStack(spacing: 8) {
+                                Text(best > 0 ? "Best: \(best.formatted(.number.precision(.fractionLength(0...2)))) kg" : "No previous best")
+                                if let target = log.targetReps {
+                                    Text("Target \(target) reps")
+                                        .foregroundStyle(RFTheme.accent)
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundStyle(RFTheme.muted)
+                            if let note = log.coachingNote {
+                                Text(note)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let group = log.supersetGroup {
+                                Label("Superset \(group)", systemImage: "link")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(RFTheme.accent)
+                            }
                         }
                         Spacer()
                         Image(systemName: "chevron.right").foregroundStyle(RFTheme.muted)
@@ -1033,7 +1322,7 @@ struct ExerciseDetailView: View {
 
     @ViewBuilder
     private var guide: some View {
-        MovementAnimationView(movement: exercise.movement)
+        ExerciseDemoView(exercise: exercise)
 
         HStack {
             Label(exercise.muscle, systemImage: "figure.strengthtraining.traditional")
@@ -1132,54 +1421,238 @@ struct ExerciseDetailView: View {
     }
 }
 
-struct MovementAnimationView: View {
-    let movement: String
-    @State private var phase = false
+struct ExerciseDemoView: View {
+    let exercise: ExerciseDefinition
+    @State private var isPlaying = true
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                RoundedRectangle(cornerRadius: 22).fill(RFTheme.surface)
-                Canvas { context, size in
-                    let cx = size.width / 2
-                    let cy = size.height / 2
-                    let delta: CGFloat = phase ? 22 : -6
-                    let head = CGPoint(x: cx, y: cy - 65 + (movement == "squat" ? delta * 0.3 : 0))
-                    context.fill(Path(ellipseIn: CGRect(x: head.x - 12, y: head.y - 12, width: 24, height: 24)), with: .color(RFTheme.accent))
+        ZStack(alignment: .bottomTrailing) {
+            RoundedRectangle(cornerRadius: 22)
+                .fill(Color.white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22)
+                        .stroke(Color.black.opacity(0.12), lineWidth: 1)
+                )
 
-                    var bodyPath = Path()
-                    let shoulder = CGPoint(x: cx, y: head.y + 22)
-                    let hip = CGPoint(x: cx + (movement == "hinge" ? delta : 0), y: cy + 20 + (movement == "squat" ? delta : 0))
-                    bodyPath.move(to: shoulder)
-                    bodyPath.addLine(to: hip)
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying)) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let phase = CGFloat((sin(t * 2.6) + 1) / 2)
+                ExerciseFigureCanvas(exercise: exercise, phase: phase)
+                    .padding(12)
+            }
 
-                    let handY = movement == "press" ? cy - 45 - delta : cy - 5 + (movement == "curl" ? delta : 0)
-                    bodyPath.move(to: shoulder)
-                    bodyPath.addLine(to: CGPoint(x: cx - 48, y: handY))
-                    bodyPath.move(to: shoulder)
-                    bodyPath.addLine(to: CGPoint(x: cx + 48, y: handY))
+            Button {
+                isPlaying.toggle()
+            } label: {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.headline)
+                    .foregroundStyle(RFTheme.accent)
+                    .frame(width: 52, height: 52)
+                    .background(RFTheme.accent.opacity(0.16))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(14)
+        }
+        .frame(height: 260)
+        .accessibilityLabel("\(exercise.name) animated exercise demonstration")
+    }
+}
 
-                    let footY = cy + 82
-                    bodyPath.move(to: hip)
-                    bodyPath.addLine(to: CGPoint(x: cx - 34, y: footY))
-                    bodyPath.move(to: hip)
-                    bodyPath.addLine(to: CGPoint(x: cx + 34, y: footY))
+struct ExerciseFigureCanvas: View {
+    let exercise: ExerciseDefinition
+    let phase: CGFloat
 
-                    context.stroke(bodyPath, with: .color(.white.opacity(0.92)), style: StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round))
+    var body: some View {
+        Canvas { context, size in
+            let w = size.width
+            let h = size.height
+            let cx = w * 0.50
+            let cy = h * 0.51
 
+            drawEquipment(context: &context, size: size)
+
+            let isBench = exercise.name.localizedCaseInsensitiveContains("bench") ||
+                          exercise.name.localizedCaseInsensitiveContains("skull")
+            let isPulldown = exercise.name.localizedCaseInsensitiveContains("pulldown")
+            let isRow = exercise.name.localizedCaseInsensitiveContains("row")
+            let isLegPress = exercise.name.localizedCaseInsensitiveContains("leg press")
+            let isCurl = exercise.movement == "curl"
+            let isSquat = exercise.movement == "squat"
+            let isHinge = exercise.movement == "hinge"
+            let isRaise = exercise.movement == "raise"
+            let isCore = exercise.movement == "core"
+
+            let bodyColor = Color(red: 0.74, green: 0.75, blue: 0.76)
+            let outline = Color(red: 0.33, green: 0.34, blue: 0.36)
+            let muscle = Color(red: 0.94, green: 0.28, blue: 0.10)
+
+            func stroke(_ a: CGPoint, _ b: CGPoint, width: CGFloat = 15, color: Color = bodyColor) {
+                var p = Path()
+                p.move(to: a)
+                p.addLine(to: b)
+                context.stroke(p, with: .color(outline), style: StrokeStyle(lineWidth: width + 3, lineCap: .round))
+                context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: width, lineCap: .round))
+            }
+
+            func joint(_ p: CGPoint, r: CGFloat = 9, color: Color = bodyColor) {
+                context.fill(Path(ellipseIn: CGRect(x: p.x-r, y: p.y-r, width: r*2, height: r*2)), with: .color(outline))
+                context.fill(Path(ellipseIn: CGRect(x: p.x-r+2, y: p.y-r+2, width: r*2-4, height: r*2-4)), with: .color(color))
+            }
+
+            if isBench {
+                let torsoY = cy + 8
+                let head = CGPoint(x: cx - 76, y: torsoY - 2)
+                let shoulder = CGPoint(x: cx - 45, y: torsoY)
+                let hip = CGPoint(x: cx + 30, y: torsoY + 8)
+                let knee = CGPoint(x: cx + 68, y: torsoY + 46)
+                let foot = CGPoint(x: cx + 80, y: torsoY + 92)
+
+                context.fill(Path(ellipseIn: CGRect(x: head.x-15, y: head.y-15, width: 30, height: 30)), with: .color(bodyColor))
+                stroke(shoulder, hip, width: 24)
+                stroke(hip, knee, width: 17)
+                stroke(knee, foot, width: 15)
+
+                let barY = torsoY - 52 + phase * 40
+                let leftHand = CGPoint(x: cx - 34, y: barY)
+                let rightHand = CGPoint(x: cx + 28, y: barY)
+                stroke(shoulder, leftHand, width: 13)
+                stroke(CGPoint(x: cx - 5, y: torsoY), rightHand, width: 13)
+
+                var bar = Path()
+                bar.move(to: CGPoint(x: cx - 92, y: barY))
+                bar.addLine(to: CGPoint(x: cx + 90, y: barY))
+                context.stroke(bar, with: .color(.black), style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                context.fill(Path(ellipseIn: CGRect(x: cx-98, y: barY-18, width: 12, height: 36)), with: .color(.black))
+                context.fill(Path(ellipseIn: CGRect(x: cx+86, y: barY-18, width: 12, height: 36)), with: .color(.black))
+
+                drawMuscleHighlight(context: &context, center: CGPoint(x: cx-15, y: torsoY-3), muscle: exercise.muscle, color: muscle, horizontal: true)
+                joint(leftHand, r: 7)
+                joint(rightHand, r: 7)
+            } else if isLegPress {
+                let hip = CGPoint(x: cx-30, y: cy+20)
+                let shoulder = CGPoint(x: cx-65, y: cy-45)
+                let head = CGPoint(x: cx-78, y: cy-80)
+                let knee = CGPoint(x: cx+15 + phase*34, y: cy+2 - phase*18)
+                let foot = CGPoint(x: cx+75, y: cy-55)
+
+                context.fill(Path(ellipseIn: CGRect(x: head.x-14, y: head.y-14, width: 28, height: 28)), with: .color(bodyColor))
+                stroke(shoulder, hip, width: 23)
+                stroke(hip, knee, width: 18)
+                stroke(knee, foot, width: 16)
+                drawMuscleHighlight(context: &context, center: CGPoint(x: (hip.x+knee.x)/2, y: (hip.y+knee.y)/2), muscle: exercise.muscle, color: muscle, horizontal: false)
+            } else {
+                let squatDrop = isSquat ? phase * 45 : 0
+                let hingeShift = isHinge ? phase * 34 : 0
+                let torsoLean = isHinge ? phase * 36 : 0
+                let head = CGPoint(x: cx + torsoLean*0.45, y: cy - 88 + squatDrop)
+                let shoulder = CGPoint(x: cx + torsoLean*0.4, y: cy - 52 + squatDrop)
+                let hip = CGPoint(x: cx + hingeShift, y: cy + 8 + squatDrop)
+                let kneeL = CGPoint(x: cx - 24 + (isSquat ? phase*28 : 0), y: cy + 62 + squatDrop*0.35)
+                let kneeR = CGPoint(x: cx + 24 + (isSquat ? phase*20 : 0), y: cy + 62 + squatDrop*0.35)
+                let footL = CGPoint(x: cx - 42, y: cy + 110)
+                let footR = CGPoint(x: cx + 42, y: cy + 110)
+
+                context.fill(Path(ellipseIn: CGRect(x: head.x-15, y: head.y-15, width: 30, height: 30)), with: .color(bodyColor))
+                stroke(shoulder, hip, width: 25)
+                stroke(hip, kneeL, width: 17)
+                stroke(kneeL, footL, width: 15)
+                stroke(hip, kneeR, width: 17)
+                stroke(kneeR, footR, width: 15)
+
+                let armLift: CGFloat
+                if isPulldown { armLift = -68 + phase*75 }
+                else if isRaise { armLift = -phase*62 }
+                else if isCurl { armLift = 8 - phase*50 }
+                else if isRow { armLift = 12 - phase*24 }
+                else if exercise.movement == "press" { armLift = -20 - phase*68 }
+                else if isCore { armLift = -15 + phase*18 }
+                else { armLift = -4 }
+
+                let handL = CGPoint(x: cx - 58 + (isRow ? phase*34 : 0), y: cy - 28 + squatDrop + armLift)
+                let handR = CGPoint(x: cx + 58 - (isRow ? phase*34 : 0), y: cy - 28 + squatDrop + armLift)
+                stroke(shoulder, handL, width: 13)
+                stroke(shoulder, handR, width: 13)
+
+                if exercise.equipment == "Dumbbell" || exercise.equipment == "EZ-Bar" {
+                    drawWeight(context: &context, at: handL)
+                    drawWeight(context: &context, at: handR)
+                } else if exercise.equipment == "Barbell" || exercise.equipment == "Trap Bar" {
                     var bar = Path()
-                    bar.move(to: CGPoint(x: cx - 65, y: handY))
-                    bar.addLine(to: CGPoint(x: cx + 65, y: handY))
-                    context.stroke(bar, with: .color(RFTheme.accent), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    bar.move(to: CGPoint(x: handL.x-18, y: handL.y))
+                    bar.addLine(to: CGPoint(x: handR.x+18, y: handR.y))
+                    context.stroke(bar, with: .color(.black), style: StrokeStyle(lineWidth: 5, lineCap: .round))
                 }
-                .padding(18)
+
+                drawMuscleHighlight(context: &context, center: muscleCenter(muscleName: exercise.muscle, shoulder: shoulder, hip: hip, knee: kneeR), muscle: exercise.muscle, color: muscle, horizontal: true)
             }
         }
-        .frame(height: 225)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
-                phase = true
-            }
+    }
+
+    private func muscleCenter(muscleName: String, shoulder: CGPoint, hip: CGPoint, knee: CGPoint) -> CGPoint {
+        switch muscleName {
+        case "Chest": return CGPoint(x: shoulder.x, y: shoulder.y + 18)
+        case "Shoulders": return CGPoint(x: shoulder.x, y: shoulder.y)
+        case "Biceps", "Triceps", "Forearms": return CGPoint(x: shoulder.x + 28, y: shoulder.y + 14)
+        case "Quadriceps", "Hamstrings", "Glutes", "Adductors": return CGPoint(x: (hip.x+knee.x)/2, y: (hip.y+knee.y)/2)
+        case "Calves": return CGPoint(x: knee.x+8, y: knee.y+28)
+        case "Core": return CGPoint(x: hip.x, y: hip.y-26)
+        default: return CGPoint(x: shoulder.x, y: shoulder.y+26)
+        }
+    }
+
+    private func drawMuscleHighlight(context: inout GraphicsContext, center: CGPoint, muscle: String, color: Color, horizontal: Bool) {
+        let wide = ["Chest", "Back", "Shoulders"].contains(muscle)
+        let rect = CGRect(
+            x: center.x - (wide ? 24 : 14),
+            y: center.y - (wide ? 12 : 19),
+            width: wide ? 48 : 28,
+            height: wide ? 24 : 38
+        )
+        context.fill(Path(ellipseIn: rect), with: .color(color.opacity(0.88)))
+    }
+
+    private func drawWeight(context: inout GraphicsContext, at p: CGPoint) {
+        var bar = Path()
+        bar.move(to: CGPoint(x: p.x-12, y: p.y))
+        bar.addLine(to: CGPoint(x: p.x+12, y: p.y))
+        context.stroke(bar, with: .color(.black), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+        context.fill(Path(roundedRect: CGRect(x: p.x-16, y: p.y-9, width: 6, height: 18), cornerRadius: 2), with: .color(.black))
+        context.fill(Path(roundedRect: CGRect(x: p.x+10, y: p.y-9, width: 6, height: 18), cornerRadius: 2), with: .color(.black))
+    }
+
+    private func drawEquipment(context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        let name = exercise.name.lowercased()
+
+        if name.contains("bench") || name.contains("skull") {
+            let bench = CGRect(x: w*0.20, y: h*0.61, width: w*0.60, height: 14)
+            context.fill(Path(roundedRect: bench, cornerRadius: 6), with: .color(Color.gray.opacity(0.65)))
+            var legs = Path()
+            legs.move(to: CGPoint(x: w*0.28, y: h*0.64))
+            legs.addLine(to: CGPoint(x: w*0.24, y: h*0.88))
+            legs.move(to: CGPoint(x: w*0.72, y: h*0.64))
+            legs.addLine(to: CGPoint(x: w*0.76, y: h*0.88))
+            context.stroke(legs, with: .color(.gray), style: StrokeStyle(lineWidth: 8, lineCap: .round))
+        }
+
+        if name.contains("smith") || exercise.equipment == "Machine" {
+            var frame = Path()
+            frame.move(to: CGPoint(x: w*0.16, y: h*0.12))
+            frame.addLine(to: CGPoint(x: w*0.16, y: h*0.88))
+            frame.move(to: CGPoint(x: w*0.84, y: h*0.12))
+            frame.addLine(to: CGPoint(x: w*0.84, y: h*0.88))
+            frame.move(to: CGPoint(x: w*0.16, y: h*0.12))
+            frame.addLine(to: CGPoint(x: w*0.84, y: h*0.12))
+            context.stroke(frame, with: .color(.gray.opacity(0.75)), style: StrokeStyle(lineWidth: 7, lineCap: .round))
+        }
+
+        if name.contains("pulldown") || name.contains("cable") || exercise.equipment == "Cable" {
+            var cable = Path()
+            cable.move(to: CGPoint(x: w*0.78, y: h*0.10))
+            cable.addLine(to: CGPoint(x: w*0.78, y: h*0.86))
+            context.stroke(cable, with: .color(.gray.opacity(0.7)), style: StrokeStyle(lineWidth: 6))
+            context.fill(Path(roundedRect: CGRect(x: w*0.74, y: h*0.60, width: w*0.08, height: h*0.20), cornerRadius: 5), with: .color(.black.opacity(0.7)))
         }
     }
 }
