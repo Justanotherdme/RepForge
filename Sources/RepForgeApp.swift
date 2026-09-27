@@ -1698,6 +1698,15 @@ struct ActiveWorkoutView: View {
         }
     }
 
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+    }
+
     private func addPickedExercises() {
         guard !pickerIDs.isEmpty else { return }
         let existing = Set(session.exercises.map(\.exerciseID))
