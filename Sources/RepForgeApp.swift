@@ -219,7 +219,7 @@ struct ExerciseDefinition: Identifiable, Hashable {
 }
 
 enum ExerciseCatalog {
-    static let all: [ExerciseDefinition] = {
+    private static let builtIn: [ExerciseDefinition] = {
         let rows = """
 Bench Press (Barbell)|Chest|Barbell|press
 Bench Press (Dumbbell)|Chest|Dumbbell|press
@@ -377,6 +377,10 @@ Bench Press (Smith Machine)|Chest|Machine|press
         }
     }()
 
+    static var all: [ExerciseDefinition] {
+        builtIn + CustomExerciseStore.load().map { $0.definition }
+    }
+
     static func find(_ id: String) -> ExerciseDefinition? {
         all.first { $0.id == id }
     }
@@ -387,6 +391,70 @@ Bench Press (Smith Machine)|Chest|Machine|press
 
     static var muscles: [String] {
         Array(Set(all.map(\.muscle))).sorted()
+    }
+}
+
+struct CustomExerciseRecord: Codable, Identifiable, Hashable {
+    var id: String
+    var name: String
+    var muscle: String
+    var equipment: String
+    var movement: String
+
+    var definition: ExerciseDefinition {
+        ExerciseDefinition(
+            id: id,
+            name: name,
+            muscle: muscle,
+            equipment: equipment,
+            movement: movement
+        )
+    }
+}
+
+enum CustomExerciseStore {
+    private static let key = "repforge.customExercises.v1"
+
+    static func load() -> [CustomExerciseRecord] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let records = try? JSONDecoder().decode([CustomExerciseRecord].self, from: data) else {
+            return []
+        }
+        return records
+    }
+
+    static func save(_ records: [CustomExerciseRecord]) {
+        guard let data = try? JSONEncoder().encode(records) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    static func add(name: String, muscle: String, equipment: String, movement: String) {
+        var records = load()
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty,
+              !records.contains(where: { $0.name.caseInsensitiveCompare(cleanName) == .orderedSame }),
+              ExerciseCatalog.findByName(cleanName) == nil else { return }
+
+        records.append(
+            CustomExerciseRecord(
+                id: "custom-\(UUID().uuidString)",
+                name: cleanName,
+                muscle: muscle,
+                equipment: equipment,
+                movement: movement
+            )
+        )
+        save(records)
+    }
+
+    static func delete(id: String) {
+        var records = load()
+        records.removeAll { $0.id == id }
+        save(records)
+    }
+
+    static func isCustom(_ id: String) -> Bool {
+        id.hasPrefix("custom-")
     }
 }
 
@@ -3085,9 +3153,13 @@ struct SessionDetailView: View {
 struct ExerciseLibraryView: View {
     @State private var search = ""
     @State private var muscle = "All"
+    @State private var showCustomEditor = false
+    @State private var refreshToken = UUID()
+    @State private var deleteCandidate: ExerciseDefinition?
 
     private var filtered: [ExerciseDefinition] {
-        ExerciseCatalog.all.filter {
+        _ = refreshToken
+        return ExerciseCatalog.all.filter {
             (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) &&
             (muscle == "All" || $0.muscle == muscle)
         }
@@ -3109,7 +3181,19 @@ struct ExerciseLibraryView: View {
                         .frame(width: 52, height: 52)
 
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(ex.name).font(.headline)
+                            HStack(spacing: 6) {
+                                Text(ex.name).font(.headline)
+                                if CustomExerciseStore.isCustom(ex.id) {
+                                    Text(L10n.text("CUSTOM", "EIGEN"))
+                                        .font(.system(size: 8, weight: .bold))
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(RFTheme.accent.opacity(0.18))
+                                        .foregroundStyle(RFTheme.accent)
+                                        .clipShape(Capsule())
+                                }
+                            }
+
                             Text("\(ex.muscle) • \(ex.equipment)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -3117,24 +3201,75 @@ struct ExerciseLibraryView: View {
                     }
                     .padding(.vertical, 4)
                 }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if CustomExerciseStore.isCustom(ex.id) {
+                        Button(role: .destructive) {
+                            deleteCandidate = ex
+                        } label: {
+                            Label(L10n.text("Delete", "Verwijder"), systemImage: "trash")
+                        }
+                    }
+                }
             }
+            .id(refreshToken)
             .scrollContentBackground(.hidden)
             .background(RFTheme.bg)
-            .searchable(text: $search)
-            .navigationTitle("Exercises")
+            .searchable(text: $search, prompt: L10n.text("Search exercises", "Zoek oefeningen"))
+            .navigationTitle(L10n.exercises)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showCustomEditor = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel(L10n.text("Create custom exercise", "Eigen oefening maken"))
+                }
+            }
             .safeAreaInset(edge: .top) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack {
                         ForEach(["All"] + ExerciseCatalog.muscles, id: \.self) { item in
-                            Button(item) { muscle = item }
-                                .buttonStyle(.bordered)
-                                .tint(muscle == item ? RFTheme.accent : .gray)
+                            Button(item == "All" ? L10n.text("All", "Alles") : item) {
+                                muscle = item
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(muscle == item ? RFTheme.accent : .gray)
                         }
                     }
                     .padding(.horizontal)
                     .padding(.vertical, 6)
                 }
                 .background(.ultraThinMaterial)
+            }
+            .sheet(isPresented: $showCustomEditor, onDismiss: {
+                refreshToken = UUID()
+            }) {
+                CustomExerciseEditorView()
+            }
+            .confirmationDialog(
+                L10n.text("Delete custom exercise?", "Eigen oefening verwijderen?"),
+                isPresented: Binding(
+                    get: { deleteCandidate != nil },
+                    set: { if !$0 { deleteCandidate = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button(L10n.text("Delete", "Verwijder"), role: .destructive) {
+                    if let candidate = deleteCandidate {
+                        CustomExerciseStore.delete(id: candidate.id)
+                        deleteCandidate = nil
+                        refreshToken = UUID()
+                    }
+                }
+                Button(L10n.text("Cancel", "Annuleren"), role: .cancel) {
+                    deleteCandidate = nil
+                }
+            } message: {
+                Text(L10n.text(
+                    "Existing workout history will keep its saved exercise ID, but the exercise will no longer appear in the library.",
+                    "Bestaande trainingsgeschiedenis behoudt de opgeslagen oefening-ID, maar de oefening verschijnt niet meer in de bibliotheek."
+                ))
             }
         }
     }
@@ -3146,10 +3281,98 @@ struct ExerciseLibraryView: View {
         case "squat": return "figure.strengthtraining.traditional"
         case "hinge": return "figure.flexibility"
         case "cardio": return "figure.run"
+        case "core": return "figure.core.training"
         default: return "dumbbell.fill"
         }
     }
 }
+
+struct CustomExerciseEditorView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name = ""
+    @State private var muscle = "Chest"
+    @State private var equipment = "Dumbbell"
+    @State private var movement = "press"
+
+    private let muscles = [
+        "Chest", "Back", "Shoulders", "Biceps", "Triceps", "Forearms",
+        "Quadriceps", "Hamstrings", "Glutes", "Calves", "Core", "Full Body", "Cardio", "Other"
+    ]
+
+    private let equipmentOptions = [
+        "Barbell", "Dumbbell", "Cable", "Machine", "Bodyweight",
+        "Kettlebell", "EZ-Bar", "Trap Bar", "Cardio", "Other"
+    ]
+
+    private let movementOptions: [(String, String)] = [
+        ("press", "Press"),
+        ("pull", "Pull"),
+        ("squat", "Squat"),
+        ("hinge", "Hinge"),
+        ("curl", "Curl"),
+        ("extension", "Extension"),
+        ("raise", "Raise"),
+        ("core", "Core"),
+        ("carry", "Carry"),
+        ("cardio", "Cardio"),
+        ("other", "Other")
+    ]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(L10n.text("Exercise", "Oefening")) {
+                    TextField(L10n.text("Exercise name", "Naam oefening"), text: $name)
+
+                    Picker(L10n.text("Muscle", "Spiergroep"), selection: $muscle) {
+                        ForEach(muscles, id: \.self) { Text($0).tag($0) }
+                    }
+
+                    Picker(L10n.text("Equipment", "Apparatuur"), selection: $equipment) {
+                        ForEach(equipmentOptions, id: \.self) { Text($0).tag($0) }
+                    }
+
+                    Picker(L10n.text("Movement", "Beweging"), selection: $movement) {
+                        ForEach(movementOptions, id: \.0) { option in
+                            Text(option.1).tag(option.0)
+                        }
+                    }
+                }
+
+                Section {
+                    Text(L10n.text(
+                        "Custom exercises are stored locally and automatically appear in workout and template exercise pickers.",
+                        "Eigen oefeningen worden lokaal opgeslagen en verschijnen automatisch in de oefeningkiezers voor trainingen en templates."
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle(L10n.text("New Exercise", "Nieuwe oefening"))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.text("Cancel", "Annuleren")) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.text("Save", "Opslaan")) {
+                        CustomExerciseStore.add(
+                            name: name,
+                            muscle: muscle,
+                            equipment: equipment,
+                            movement: movement
+                        )
+                        Haptics.success()
+                        dismiss()
+                    }
+                    .bold()
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+}
+
 
 struct ExerciseDetailView: View {
     let exercise: ExerciseDefinition
@@ -3815,6 +4038,9 @@ struct PlateCalculatorView: View {
 }
 
 struct SettingsView: View {
+    @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var exportSessions: [WorkoutSession]
+    @Query(sort: \WorkoutTemplate.createdAt, order: .reverse) private var exportTemplates: [WorkoutTemplate]
+
     @AppStorage("appLanguage") private var appLanguage = "en"
     @AppStorage("measurementSystem") private var measurementSystem = "metric"
     @AppStorage("appearance") private var appearance = "dark"
@@ -3827,6 +4053,45 @@ struct SettingsView: View {
     @AppStorage("defaultRestSeconds") private var defaultRestSeconds = 90
     @AppStorage("autoRestTimer") private var autoRestTimer = true
     @AppStorage("progressionStepKg") private var progressionStepKg = 2.5
+
+    private var workoutCSV: String {
+        var rows = ["date,workout,exercise,set,type,weight_kg,reps,rpe,rir,note"]
+        for session in exportSessions where session.endedAt != nil {
+            for log in session.exercises.sorted(by: { $0.order < $1.order }) {
+                let exerciseName = ExerciseCatalog.find(log.exerciseID)?.name ?? log.exerciseID
+                for set in log.sets.sorted(by: { $0.order < $1.order }) where set.completed {
+                    let fields = [
+                        csv(session.startedAt.ISO8601Format()),
+                        csv(session.title),
+                        csv(exerciseName),
+                        "\(set.order + 1)",
+                        csv(set.setType),
+                        set.weightKg.formatted(.number.locale(Locale(identifier: "en_US_POSIX")).precision(.fractionLength(0...3))),
+                        "\(set.reps)",
+                        set.rpe.map { String($0) } ?? "",
+                        set.rir.map { String($0) } ?? "",
+                        csv(set.note ?? "")
+                    ]
+                    rows.append(fields.joined(separator: ","))
+                }
+            }
+        }
+        return rows.joined(separator: "\n")
+    }
+
+    private var templateBackupText: String {
+        exportTemplates.map { template in
+            let exercises = template.plannedExercises?.map {
+                "\($0.name) | \($0.sets) × \($0.reps)\($0.note.map { " | \($0)" } ?? "")"
+            } ?? template.exerciseIDs.compactMap { ExerciseCatalog.find($0)?.name }
+            return "# \(template.name)\n" + exercises.joined(separator: "\n")
+        }
+        .joined(separator: "\n\n")
+    }
+
+    private func csv(_ value: String) -> String {
+        "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
+    }
 
     var body: some View {
         NavigationStack {
@@ -3902,11 +4167,20 @@ struct SettingsView: View {
                     }
                 }
 
-                Section(L10n.text("Storage", "Opslag")) {
+                Section(L10n.text("Storage & export", "Opslag & export")) {
                     LabeledContent(L10n.text("Workout data", "Trainingsdata"), value: L10n.text("Stored locally", "Lokaal opgeslagen"))
+
+                    ShareLink(item: workoutCSV) {
+                        Label(L10n.text("Export workout history", "Trainingsgeschiedenis exporteren"), systemImage: "square.and.arrow.up")
+                    }
+
+                    ShareLink(item: templateBackupText) {
+                        Label(L10n.text("Export templates", "Templates exporteren"), systemImage: "doc.on.doc")
+                    }
+
                     Text(L10n.text(
-                        "Your workouts, templates and profile remain on this device.",
-                        "Je trainingen, templates en profiel blijven op dit apparaat."
+                        "Exports are plain text/CSV so you can keep an external copy before reinstalling or changing builds.",
+                        "Exports zijn platte tekst/CSV zodat je een externe kopie kunt bewaren vóór herinstalleren of wisselen van build."
                     ))
                     .font(.caption)
                     .foregroundStyle(.secondary)
