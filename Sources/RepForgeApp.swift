@@ -111,7 +111,13 @@ enum RFTheme {
     static var raised: Color {
         if systemMode { return Color(uiColor: .tertiarySystemBackground) }
         if explicitLight { return Color(red: 0.90, green: 0.92, blue: 0.94) }
-        return surface.opacity(0.82).mix(with: .white, by: 0.08)
+
+        switch AppPreferences.themePreset {
+        case "oled": return Color(red: 0.095, green: 0.095, blue: 0.105)
+        case "graphite": return Color(red: 0.165, green: 0.165, blue: 0.180)
+        case "navy": return Color(red: 0.105, green: 0.145, blue: 0.205)
+        default: return Color(red: 0.140, green: 0.175, blue: 0.190)
+        }
     }
 
     static var field: Color {
@@ -134,13 +140,6 @@ enum RFTheme {
     static var muted: Color {
         if systemMode { return Color.secondary }
         return explicitLight ? Color.black.opacity(0.50) : Color.white.opacity(0.52)
-    }
-}
-
-extension Color {
-    fileprivate func mix(with other: Color, by amount: Double) -> Color {
-        // Simple adaptive fallback; opacity blend avoids private color extraction.
-        self.overlay(other.opacity(amount))
     }
 }
 
