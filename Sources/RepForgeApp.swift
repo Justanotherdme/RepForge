@@ -939,7 +939,6 @@ struct StartWorkoutView: View {
                                 },
                                 onSaveAsTemplate: {
                                     templateSeed = day
-                                    showTemplateEditor = true
                                 },
                                 onReset: {
                                     programStore.reset(day)
@@ -964,7 +963,12 @@ struct StartWorkoutView: View {
             .background(RFTheme.bg)
             .navigationTitle("Start Workout")
             .sheet(isPresented: $showTemplateEditor) {
-                TemplateEditorView(prefill: templateSeed)
+                TemplateEditorView()
+            }
+            .sheet(item: $templateSeed, onDismiss: {
+                templateSeed = nil
+            }) { day in
+                TemplateEditorView(prefill: day)
             }
             .sheet(item: $editingProgramDay) { day in
                 ProgramDayEditorView(day: day) { updated in
