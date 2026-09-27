@@ -1632,7 +1632,13 @@ struct ActiveWorkoutView: View {
                     }
 
                     ForEach(session.exercises.sorted(by: { $0.order < $1.order })) { log in
-                        WorkoutExerciseBlock(log: log, sessions: allSessions)
+                        WorkoutExerciseBlock(
+                            log: log,
+                            sessions: allSessions,
+                            onRemoveExercise: {
+                                removeExercise(log)
+                            }
+                        )
                     }
 
                     Button {
@@ -1689,12 +1695,27 @@ struct ActiveWorkoutView: View {
         pickerIDs = []
         try? context.save()
     }
+
+    private func removeExercise(_ log: ExerciseLog) {
+        session.exercises.removeAll { $0.id == log.id }
+        context.delete(log)
+
+        for (index, exercise) in session.exercises
+            .sorted(by: { $0.order < $1.order })
+            .enumerated() {
+            exercise.order = index
+        }
+
+        try? context.save()
+    }
 }
 
 struct WorkoutExerciseBlock: View {
     @Environment(\.modelContext) private var context
     @Bindable var log: ExerciseLog
     let sessions: [WorkoutSession]
+    let onRemoveExercise: () -> Void
+    @State private var showRemoveExerciseConfirm = false
 
     private var exercise: ExerciseDefinition? { ExerciseCatalog.find(log.exerciseID) }
     private var previous: [(Double, Int)] { Metrics.previousSets(exerciseID: log.exerciseID, sessions: sessions) }
@@ -1704,14 +1725,15 @@ struct WorkoutExerciseBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let ex = exercise {
-                NavigationLink {
-                    ExerciseDetailView(exercise: ex)
-                } label: {
-                    HStack {
+                HStack(alignment: .top) {
+                    NavigationLink {
+                        ExerciseDetailView(exercise: ex)
+                    } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(ex.name)
                                 .font(.title3.bold())
                                 .foregroundStyle(RFTheme.accent)
+
                             HStack(spacing: 8) {
                                 Text(best > 0 ? "Best: \(best.formatted(.number.precision(.fractionLength(0...2)))) kg" : "No previous best")
                                 if let target = log.targetReps {
@@ -1721,19 +1743,42 @@ struct WorkoutExerciseBlock: View {
                             }
                             .font(.caption)
                             .foregroundStyle(RFTheme.muted)
+
                             if let note = log.coachingNote {
                                 Text(note)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
+
                             if let group = log.supersetGroup {
                                 Label("Superset \(group)", systemImage: "link")
                                     .font(.caption.bold())
                                     .foregroundStyle(RFTheme.accent)
                             }
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right").foregroundStyle(RFTheme.muted)
+                    }
+
+                    Spacer()
+
+                    Menu {
+                        NavigationLink {
+                            ExerciseDetailView(exercise: ex)
+                        } label: {
+                            Label("Exercise Guide", systemImage: "info.circle")
+                        }
+
+                        Button(role: .destructive) {
+                            showRemoveExerciseConfirm = true
+                        } label: {
+                            Label("Remove Exercise", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.headline)
+                            .foregroundStyle(RFTheme.accent)
+                            .frame(width: 40, height: 40)
+                            .background(RFTheme.raised)
+                            .clipShape(RoundedRectangle(cornerRadius: 11))
                     }
                 }
             }
@@ -1741,10 +1786,9 @@ struct WorkoutExerciseBlock: View {
             HStack {
                 Text("Set").frame(width: 42, alignment: .leading)
                 Text("Previous").frame(maxWidth: .infinity)
-                Text("kg").frame(width: 72)
-                Text("Reps").frame(width: 60)
-                Image(systemName: "checkmark").frame(width: 30)
-                Image(systemName: "minus").frame(width: 30)
+                Text("kg").frame(width: 76)
+                Text("Reps").frame(width: 64)
+                Image(systemName: "checkmark").frame(width: 34)
             }
             .font(.caption.bold())
             .foregroundStyle(.secondary)
@@ -1760,42 +1804,36 @@ struct WorkoutExerciseBlock: View {
                 )
             }
 
-            HStack(spacing: 10) {
-                Button {
-                    removeLastSet()
-                } label: {
-                    Label("Remove Set", systemImage: "minus")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .tint(.red)
-                .disabled(log.sets.count <= 1)
-
-                Button {
-                    addSet()
-                } label: {
-                    Label("Add Set", systemImage: "plus")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(RFTheme.accent)
+            Button {
+                addSet()
+            } label: {
+                Label("Add Set", systemImage: "plus")
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.borderedProminent)
+            .tint(RFTheme.accent)
         }
         .padding()
         .background(RFTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 20))
+        .confirmationDialog(
+            "Remove \(exercise?.name ?? "exercise")?",
+            isPresented: $showRemoveExerciseConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Exercise", role: .destructive) {
+                onRemoveExercise()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the exercise and its sets from the current workout only.")
+        }
     }
 
     private func addSet() {
         let next = (log.sets.map(\.order).max() ?? -1) + 1
         log.sets.append(WorkoutSet(order: next))
         try? context.save()
-    }
-
-    private func removeLastSet() {
-        guard log.sets.count > 1,
-              let last = orderedSets.last else { return }
-        removeSet(last)
     }
 
     private func removeSet(_ set: WorkoutSet) {
@@ -1820,8 +1858,98 @@ struct WorkoutSetRow: View {
     let canDelete: Bool
     let onDelete: () -> Void
 
+    @State private var dragOffset: CGFloat = 0
+    @State private var restingOffset: CGFloat = 0
+
+    private let deleteWidth: CGFloat = 78
+
     var body: some View {
-        HStack(spacing: 7) {
+        ZStack(alignment: .trailing) {
+            if canDelete {
+                Button(role: .destructive) {
+                    withAnimation(.snappy) {
+                        dragOffset = 0
+                        restingOffset = 0
+                    }
+                    onDelete()
+                } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: "trash.fill")
+                        Text("Delete")
+                            .font(.caption2.bold())
+                    }
+                    .foregroundStyle(.white)
+                    .frame(width: deleteWidth, height: 44)
+                    .background(Color.red)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .accessibilityLabel("Delete set \(set.order + 1)")
+            }
+
+            rowContent
+                .background(RFTheme.surface)
+                .offset(x: dragOffset)
+                .contentShape(Rectangle())
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 12)
+                        .onChanged { value in
+                            guard canDelete else { return }
+
+                            let horizontal = value.translation.width
+                            let vertical = value.translation.height
+                            guard abs(horizontal) > abs(vertical) else { return }
+
+                            let proposed = restingOffset + horizontal
+                            dragOffset = min(0, max(-deleteWidth * 1.45, proposed))
+                        }
+                        .onEnded { value in
+                            guard canDelete else { return }
+
+                            let horizontal = value.translation.width
+                            let vertical = value.translation.height
+                            guard abs(horizontal) > abs(vertical) else {
+                                withAnimation(.snappy) {
+                                    dragOffset = restingOffset
+                                }
+                                return
+                            }
+
+                            if dragOffset < -(deleteWidth * 1.15) {
+                                withAnimation(.easeOut(duration: 0.16)) {
+                                    dragOffset = -360
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                                    onDelete()
+                                    dragOffset = 0
+                                    restingOffset = 0
+                                }
+                            } else if dragOffset < -(deleteWidth * 0.38) {
+                                withAnimation(.snappy) {
+                                    dragOffset = -deleteWidth
+                                    restingOffset = -deleteWidth
+                                }
+                            } else {
+                                withAnimation(.snappy) {
+                                    dragOffset = 0
+                                    restingOffset = 0
+                                }
+                            }
+                        }
+                )
+                .onTapGesture {
+                    if restingOffset != 0 {
+                        withAnimation(.snappy) {
+                            dragOffset = 0
+                            restingOffset = 0
+                        }
+                    }
+                }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: 8) {
             Text("\(set.order + 1)")
                 .font(.headline)
                 .frame(width: 42, height: 42)
@@ -1836,14 +1964,14 @@ struct WorkoutSetRow: View {
             TextField("0", value: $set.weightKg, format: .number.precision(.fractionLength(0...2)))
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.center)
-                .frame(width: 72, height: 42)
+                .frame(width: 76, height: 42)
                 .background(RFTheme.field)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
             TextField("0", value: $set.reps, format: .number)
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.center)
-                .frame(width: 60, height: 42)
+                .frame(width: 64, height: 42)
                 .background(RFTheme.field)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
@@ -1856,17 +1984,9 @@ struct WorkoutSetRow: View {
                     .font(.title3)
                     .foregroundStyle(set.completed ? RFTheme.success : RFTheme.muted)
             }
-            .frame(width: 30)
-
-            Button(role: .destructive, action: onDelete) {
-                Image(systemName: "minus.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(canDelete ? Color.red.opacity(0.9) : RFTheme.muted.opacity(0.35))
-            }
-            .frame(width: 30)
-            .disabled(!canDelete)
-            .accessibilityLabel("Remove set \(set.order + 1)")
+            .frame(width: 34)
         }
+        .frame(height: 44)
     }
 }
 
