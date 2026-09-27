@@ -2035,12 +2035,22 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
     @Query private var profiles: [UserProfile]
     @State private var tab = 2
+    @State private var importMessage: String?
 
     @AppStorage("appLanguage") private var appLanguage = "en"
     @AppStorage("appearance") private var appearance = "dark"
     @AppStorage("themePreset") private var themePreset = "forge"
     @AppStorage("textSize") private var textSize = "standard"
     @AppStorage("measurementSystem") private var measurementSystem = "metric"
+
+    private var upcomingScheduled: [ScheduledWorkoutRecord] {
+        _ = scheduleRevision
+        let start = Calendar.current.startOfDay(for: .now)
+        return WorkoutScheduleStore.load()
+            .filter { !$0.skipped && $0.date >= start }
+            .prefix(4)
+            .map { $0 }
+    }
 
     var body: some View {
         TabView(selection: $tab) {
@@ -2069,6 +2079,75 @@ struct RootView: View {
                 context.insert(UserProfile())
                 try? context.save()
             }
+        }
+        .onOpenURL { url in
+            importShareLink(url)
+        }
+        .alert(
+            L10n.text("RepForge Import", "RepForge Import"),
+            isPresented: Binding(
+                get: { importMessage != nil },
+                set: { if !$0 { importMessage = nil } }
+            )
+        ) {
+            Button(L10n.done) { importMessage = nil }
+        } message: {
+            Text(importMessage ?? "")
+        }
+    }
+
+    private func importShareLink(_ url: URL) {
+        guard let payload = RepForgeShareCodec.decode(url) else {
+            importMessage = L10n.text("This RepForge link could not be read.", "Deze RepForge-link kon niet worden gelezen.")
+            return
+        }
+
+        switch payload.kind {
+        case "template":
+            guard let exercises = payload.exercises, !exercises.isEmpty else {
+                importMessage = L10n.text("The shared template is empty.", "De gedeelde template is leeg.")
+                return
+            }
+
+            let ids = exercises.compactMap { ExerciseCatalog.findByName($0.name)?.id }
+            context.insert(
+                WorkoutTemplate(
+                    name: payload.name,
+                    exerciseIDs: ids,
+                    plan: exercises
+                )
+            )
+            try? context.save()
+            importMessage = L10n.text(
+                "Imported template “\(payload.name)”.",
+                "Template “\(payload.name)” geïmporteerd."
+            )
+
+        case "program":
+            let days = payload.days ?? []
+            guard !days.isEmpty else {
+                importMessage = L10n.text("The shared program is empty.", "Het gedeelde programma is leeg.")
+                return
+            }
+
+            for day in days {
+                let ids = day.exercises.compactMap { ExerciseCatalog.findByName($0.name)?.id }
+                context.insert(
+                    WorkoutTemplate(
+                        name: "\(payload.name) • \(day.title) — \(day.focus)",
+                        exerciseIDs: ids,
+                        plan: day.exercises
+                    )
+                )
+            }
+            try? context.save()
+            importMessage = L10n.text(
+                "Imported \(days.count) workouts from “\(payload.name)”.",
+                "\(days.count) trainingen uit “\(payload.name)” geïmporteerd."
+            )
+
+        default:
+            importMessage = L10n.text("Unsupported RepForge share link.", "Niet-ondersteunde RepForge-deellink.")
         }
     }
 
@@ -2136,7 +2215,9 @@ struct StartWorkoutView: View {
     @State private var editingProgramDay: ProgramDay?
     @State private var activeSession: WorkoutSession?
     @State private var selectedProgramWeek = 1
+    @State private var scheduleSeed: ScheduledWorkoutRecord?
     @AppStorage("activeGymID") private var activeGymID = GymProfileStore.defaultID
+    @AppStorage("scheduleRevision") private var scheduleRevision = 0
 
     var body: some View {
         NavigationStack {
@@ -2159,6 +2240,36 @@ struct StartWorkoutView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(RFTheme.accent)
+
+                    if !upcomingScheduled.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text(L10n.text("Upcoming", "Gepland"))
+                                    .font(.title2.bold())
+                                Spacer()
+                                Image(systemName: "calendar.badge.clock")
+                                    .foregroundStyle(RFTheme.accent)
+                            }
+
+                            ForEach(upcomingScheduled) { item in
+                                ScheduledWorkoutCard(
+                                    item: item,
+                                    onStart: {
+                                        activeSession = createSession(schedule: item)
+                                    },
+                                    onReschedule: {
+                                        scheduleSeed = item
+                                    },
+                                    onSkip: {
+                                        WorkoutScheduleStore.toggleSkipped(id: item.id)
+                                    },
+                                    onDelete: {
+                                        WorkoutScheduleStore.remove(id: item.id)
+                                    }
+                                )
+                            }
+                        }
+                    }
 
                     HStack {
                         Text("Templates").font(.largeTitle.bold())
@@ -2192,6 +2303,16 @@ struct StartWorkoutView: View {
                                     onDuplicate: {
                                         duplicateTemplate(template)
                                     },
+                                    onSchedule: {
+                                        scheduleSeed = ScheduledWorkoutRecord(
+                                            date: defaultScheduleDate(),
+                                            title: template.name,
+                                            exerciseIDs: template.exerciseIDs,
+                                            plan: template.plannedExercises,
+                                            gymID: activeGymID,
+                                            sourceLabel: L10n.text("Template", "Template")
+                                        )
+                                    },
                                     onDelete: {
                                         context.delete(template)
                                         try? context.save()
@@ -2206,13 +2327,26 @@ struct StartWorkoutView: View {
                             Text("Your 3-Week Program")
                                 .font(.title2.bold())
                             Spacer()
-                            Picker("Week", selection: $selectedProgramWeek) {
-                                Text("W1").tag(1)
-                                Text("W2").tag(2)
-                                Text("W3").tag(3)
+                            HStack(spacing: 8) {
+                                ShareLink(
+                                    item: RepForgeShareCodec.programURL(
+                                        name: "RepForge 3-Week Program",
+                                        days: BuiltInProgram.days.map { programStore.day(for: $0) }
+                                    )
+                                ) {
+                                    Image(systemName: "square.and.arrow.up")
+                                }
+                                .buttonStyle(.bordered)
+                                .accessibilityLabel(L10n.text("Share program", "Programma delen"))
+
+                                Picker("Week", selection: $selectedProgramWeek) {
+                                    Text("W1").tag(1)
+                                    Text("W2").tag(2)
+                                    Text("W3").tag(3)
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(width: 150)
                             }
-                            .pickerStyle(.segmented)
-                            .frame(width: 150)
                         }
 
                         ForEach(programStore.days(for: selectedProgramWeek)) { day in
@@ -2227,6 +2361,16 @@ struct StartWorkoutView: View {
                                 },
                                 onSaveAsTemplate: {
                                     templateSeed = day
+                                },
+                                onSchedule: {
+                                    scheduleSeed = ScheduledWorkoutRecord(
+                                        date: defaultScheduleDate(),
+                                        title: "\(day.title) — \(day.focus)",
+                                        exerciseIDs: day.exercises.compactMap { ExerciseCatalog.findByName($0.name)?.id },
+                                        plan: day.exercises,
+                                        gymID: activeGymID,
+                                        sourceLabel: L10n.text("Program", "Programma")
+                                    )
                                 },
                                 onReset: {
                                     programStore.reset(day)
@@ -2266,10 +2410,57 @@ struct StartWorkoutView: View {
                     programStore.save(updated)
                 }
             }
+            .sheet(item: $scheduleSeed) { seed in
+                ScheduleWorkoutSheet(seed: seed) { updated in
+                    WorkoutScheduleStore.update(updated)
+                }
+            }
             .fullScreenCover(item: $activeSession) { session in
                 ActiveWorkoutView(session: session)
             }
         }
+    }
+
+    private func defaultScheduleDate() -> Date {
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: .now) ?? .now
+        return calendar.date(bySettingHour: 18, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+    }
+
+    private func createSession(schedule: ScheduledWorkoutRecord) -> WorkoutSession {
+        let logs: [ExerciseLog]
+
+        if let plan = schedule.plan, !plan.isEmpty {
+            logs = plan.enumerated().compactMap { index, item in
+                guard let exercise = ExerciseCatalog.findByName(item.name) else { return nil }
+                return ExerciseLog(
+                    exerciseID: exercise.id,
+                    order: index,
+                    targetReps: item.reps,
+                    coachingNote: item.note,
+                    supersetGroup: item.superset,
+                    sets: (0..<max(1, item.sets)).map { WorkoutSet(order: $0) }
+                )
+            }
+        } else {
+            logs = schedule.exerciseIDs.enumerated().map { index, id in
+                ExerciseLog(
+                    exerciseID: id,
+                    order: index,
+                    sets: (0..<AppPreferences.defaultSets).map { WorkoutSet(order: $0) }
+                )
+            }
+        }
+
+        let session = WorkoutSession(
+            title: schedule.title,
+            exercises: logs,
+            gymID: schedule.gymID
+        )
+        context.insert(session)
+        WorkoutScheduleStore.remove(id: schedule.id)
+        try? context.save()
+        return session
     }
 
     private func duplicateTemplate(_ template: WorkoutTemplate) {
@@ -2338,12 +2529,133 @@ struct StartWorkoutView: View {
     }
 }
 
+struct ScheduleWorkoutSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var item: ScheduledWorkoutRecord
+    let onSave: (ScheduledWorkoutRecord) -> Void
+
+    init(seed: ScheduledWorkoutRecord, onSave: @escaping (ScheduledWorkoutRecord) -> Void) {
+        _item = State(initialValue: seed)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(L10n.text("Workout", "Training")) {
+                    TextField(L10n.text("Title", "Titel"), text: $item.title)
+
+                    DatePicker(
+                        L10n.text("Date & time", "Datum & tijd"),
+                        selection: $item.date,
+                        in: Date.now.addingTimeInterval(-86400)...,
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                }
+
+                Section(L10n.text("Gym", "Gym")) {
+                    Picker(L10n.text("Location", "Locatie"), selection: $item.gymID) {
+                        ForEach(GymProfileStore.load()) { gym in
+                            Text(gym.name).tag(gym.id)
+                        }
+                    }
+                }
+
+                if let source = item.sourceLabel {
+                    Section {
+                        LabeledContent(L10n.text("Source", "Bron"), value: source)
+                        LabeledContent(
+                            L10n.text("Exercises", "Oefeningen"),
+                            value: "\(item.plan?.count ?? item.exerciseIDs.count)"
+                        )
+                    }
+                }
+            }
+            .navigationTitle(L10n.text("Schedule Workout", "Training inplannen"))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.text("Cancel", "Annuleren")) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.text("Save", "Opslaan")) {
+                        onSave(item)
+                        Haptics.success()
+                        dismiss()
+                    }
+                    .bold()
+                    .disabled(item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+}
+
+struct ScheduledWorkoutCard: View {
+    let item: ScheduledWorkoutRecord
+    let onStart: () -> Void
+    let onReschedule: () -> Void
+    let onSkip: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(spacing: 2) {
+                Text(item.date.formatted(.dateTime.day()))
+                    .font(.title2.bold())
+                    .foregroundStyle(RFTheme.accent)
+                Text(item.date.formatted(.dateTime.month(.abbreviated)))
+                    .font(.caption.bold())
+                    .foregroundStyle(RFTheme.muted)
+            }
+            .frame(width: 48)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(
+                    "\(item.date.formatted(date: .omitted, time: .shortened)) • \(GymProfileStore.profile(id: item.gymID).name)"
+                )
+                .font(.caption)
+                .foregroundStyle(RFTheme.muted)
+            }
+
+            Spacer()
+
+            Button(action: onStart) {
+                Image(systemName: "play.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(RFTheme.accent)
+
+            Menu {
+                Button(action: onReschedule) {
+                    Label(L10n.text("Reschedule", "Verplaatsen"), systemImage: "calendar")
+                }
+                Button(action: onSkip) {
+                    Label(L10n.text("Skip", "Overslaan"), systemImage: "forward.end")
+                }
+                Button(role: .destructive, action: onDelete) {
+                    Label(L10n.text("Delete", "Verwijder"), systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 32, height: 32)
+            }
+        }
+        .padding(12)
+        .background(RFTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
 struct ProgramDayCard: View {
     let day: ProgramDay
     let isCustomized: Bool
     let onStart: () -> Void
     let onEdit: () -> Void
     let onSaveAsTemplate: () -> Void
+    let onSchedule: () -> Void
     let onReset: () -> Void
 
     var body: some View {
@@ -2374,6 +2686,17 @@ struct ProgramDayCard: View {
                     }
                     Button(action: onSaveAsTemplate) {
                         Label("Add to New Template", systemImage: "rectangle.stack.badge.plus")
+                    }
+                    Button(action: onSchedule) {
+                        Label(L10n.text("Schedule", "Inplannen"), systemImage: "calendar.badge.plus")
+                    }
+                    ShareLink(
+                        item: RepForgeShareCodec.templateURL(
+                            name: "\(day.title) — \(day.focus)",
+                            exercises: day.exercises
+                        )
+                    ) {
+                        Label(L10n.text("Share Workout Link", "Trainingslink delen"), systemImage: "square.and.arrow.up")
                     }
                     if isCustomized {
                         Button(role: .destructive, action: onReset) {
@@ -2424,6 +2747,12 @@ struct ProgramDayCard: View {
                     Label("Template", systemImage: "plus")
                 }
                 .buttonStyle(.bordered)
+
+                Button(action: onSchedule) {
+                    Image(systemName: "calendar.badge.plus")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel(L10n.text("Schedule workout", "Training inplannen"))
             }
         }
         .padding()
@@ -2559,6 +2888,7 @@ struct TemplateCard: View {
     let onStart: () -> Void
     let onEdit: () -> Void
     let onDuplicate: () -> Void
+    let onSchedule: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -2573,6 +2903,20 @@ struct TemplateCard: View {
                     }
                     Button(action: onDuplicate) {
                         Label(L10n.text("Duplicate", "Dupliceren"), systemImage: "plus.square.on.square")
+                    }
+                    Button(action: onSchedule) {
+                        Label(L10n.text("Schedule", "Inplannen"), systemImage: "calendar.badge.plus")
+                    }
+                    ShareLink(
+                        item: RepForgeShareCodec.templateURL(
+                            name: template.name,
+                            exercises: template.plannedExercises ?? template.exerciseIDs.compactMap { id in
+                                guard let ex = ExerciseCatalog.find(id) else { return nil }
+                                return ProgramExercise(ex.name, AppPreferences.defaultSets, "8–12")
+                            }
+                        )
+                    ) {
+                        Label(L10n.text("Share Link", "Deellink"), systemImage: "square.and.arrow.up")
                     }
                     Button(role: .destructive, action: onDelete) {
                         Label("Delete", systemImage: "trash")
