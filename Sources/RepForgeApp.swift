@@ -8271,6 +8271,12 @@ struct SettingsView: View {
     @State private var backupDocument = RepForgeBackupDocument()
     @State private var backupMessage: String?
 
+    private var appVersionDisplay: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "2"
+        return "\(version) (\(build))"
+    }
+
     private var workoutCSV: String {
         var rows: [String] = [
             "date,workout,exercise,set,type,weight_kg,reps,duration_seconds,distance_km,incline_percent,calories,avg_hr,rpe,rir,note"
@@ -8475,6 +8481,22 @@ struct SettingsView: View {
                     } label: {
                         Label(L10n.text("Plate Calculator", "Schijvencalculator"), systemImage: "circle.grid.2x2.fill")
                     }
+                }
+
+                Section(L10n.text("About", "Over")) {
+                    LabeledContent(
+                        L10n.text("RepForge version", "RepForge-versie"),
+                        value: appVersionDisplay
+                    )
+                    Label(
+                        L10n.text(
+                            "0.2.0 includes the redesigned workout UI, cardio metrics, collapsible exercise cards and Live Activity rest timer.",
+                            "0.2.0 bevat de vernieuwde trainingsinterface, cardiometingen, inklapbare oefenkaarten en Live Activity-rusttimer."
+                        ),
+                        systemImage: "sparkles"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
 
                 Section(L10n.text("Storage & export", "Opslag & export")) {
