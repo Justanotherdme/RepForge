@@ -3374,6 +3374,8 @@ struct ActiveWorkoutView: View {
     @State private var restRemaining = 0
     @State private var restOriginal = 0
     @State private var restCollapsed = false
+    @State private var restExerciseName = ""
+    @State private var restEndDate: Date?
     @State private var showWorkoutNote = false
 
     @AppStorage("keepScreenAwake") private var keepScreenAwake = true
@@ -3382,72 +3384,63 @@ struct ActiveWorkoutView: View {
 
     private let restTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    private var orderedExercises: [ExerciseLog] {
+        session.exercises.sorted(by: { $0.order < $1.order })
+    }
+
+    private var totalEntries: Int {
+        session.exercises.reduce(0) { $0 + $1.sets.count }
+    }
+
+    private var completedEntries: Int {
+        session.exercises.reduce(0) { $0 + $1.sets.filter(\.completed).count }
+    }
+
+    private var workoutProgress: Double {
+        totalEntries == 0 ? 0 : Double(completedEntries) / Double(totalEntries)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(session.title).font(.largeTitle.bold())
-                            TimelineView(.periodic(from: .now, by: 1)) { _ in
-                                Label(durationString(session.duration), systemImage: "clock")
-                                    .foregroundStyle(RFTheme.muted)
-                            }
-                            Label(
-                                GymProfileStore.profile(id: session.gymID).name,
-                                systemImage: "mappin.and.ellipse"
-                            )
-                            .font(.caption)
-                            .foregroundStyle(RFTheme.muted)
-                        }
-                        Spacer()
-                        Button(L10n.finish) { showFinishConfirm = true }
-                            .buttonStyle(.borderedProminent)
-                            .tint(RFTheme.success)
-                            .font(.headline)
-                    }
-
-                    Button {
-                        showWorkoutNote.toggle()
-                    } label: {
-                        HStack {
-                            Label(
-                                (session.note ?? "").isEmpty
-                                    ? L10n.text("Add workout note", "Trainingsnotitie toevoegen")
-                                    : L10n.text("Workout note", "Trainingsnotitie"),
-                                systemImage: "note.text"
-                            )
-                            Spacer()
-                            Image(systemName: showWorkoutNote ? "chevron.up" : "chevron.down")
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(RFTheme.accent)
+                VStack(alignment: .leading, spacing: 18) {
+                    workoutHero
 
                     if showWorkoutNote {
                         TextField(
                             L10n.text("How did the workout feel?", "Hoe voelde de training?"),
                             text: Binding(
                                 get: { session.note ?? "" },
-                                set: { session.note = $0; try? context.save() }
+                                set: {
+                                    session.note = $0
+                                    try? context.save()
+                                }
                             ),
                             axis: .vertical
                         )
                         .lineLimit(2...5)
-                        .padding(12)
-                        .background(RFTheme.field)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(14)
+                        .background(RFTheme.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(RFTheme.cardBorder)
+                        )
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
                     if session.exercises.isEmpty {
                         EmptyCard(
                             icon: "dumbbell",
                             title: L10n.text("No exercises yet", "Nog geen oefeningen"),
-                            text: L10n.text("Add an exercise to begin logging sets.", "Voeg een oefening toe om sets te registreren.")
+                            text: L10n.text(
+                                "Add an exercise to begin logging your workout.",
+                                "Voeg een oefening toe om je training te registreren."
+                            )
                         )
                     }
 
-                    ForEach(session.exercises.sorted(by: { $0.order < $1.order })) { log in
+                    ForEach(orderedExercises) { log in
                         WorkoutExerciseBlock(
                             log: log,
                             sessions: allSessions,
@@ -3466,22 +3459,54 @@ struct ActiveWorkoutView: View {
                         pickerIDs = []
                         showExercisePicker = true
                     } label: {
-                        Label(L10n.addExercise, systemImage: "plus")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 11)
+                        HStack(spacing: 10) {
+                            ZStack {
+                                Circle()
+                                    .fill(RFTheme.accent.opacity(0.16))
+                                Image(systemName: "plus")
+                                    .font(.headline.bold())
+                                    .foregroundStyle(RFTheme.accent)
+                            }
+                            .frame(width: 34, height: 34)
+
+                            Text(L10n.addExercise)
+                                .font(.headline)
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(RFTheme.muted)
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(RFTheme.accent)
+                    .buttonStyle(.plain)
+                    .background(RFTheme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18)
+                            .stroke(RFTheme.cardBorder)
+                    )
                 }
                 .padding()
-                .padding(.bottom, restRemaining > 0 ? 88 : 0)
+                .padding(.bottom, restRemaining > 0 ? 82 : 16)
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(RFTheme.bg)
+            .background(
+                LinearGradient(
+                    colors: [RFTheme.bg, RFTheme.bg, RFTheme.accent.opacity(0.035)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+            )
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
+                    Button {
+                        dismiss()
+                    } label: {
                         Image(systemName: "chevron.down")
+                            .font(.headline.bold())
                     }
                 }
             }
@@ -3492,32 +3517,17 @@ struct ActiveWorkoutView: View {
                             RestTimerCompactChip(
                                 remaining: restRemaining,
                                 onExpand: { restCollapsed = false },
-                                onAdd30: {
-                                    restRemaining += 30
-                                    restOriginal = max(restOriginal, restRemaining)
-                                    Haptics.light()
-                                },
-                                onSkip: {
-                                    restRemaining = 0
-                                    Haptics.light()
-                                }
+                                onAdd30: { adjustRest(by: 30) },
+                                onSkip: { stopRest() }
                             )
                         } else {
                             RestTimerBanner(
                                 remaining: restRemaining,
                                 original: max(restOriginal, 1),
-                                onAdd30: {
-                                    restRemaining += 30
-                                    restOriginal = max(restOriginal, restRemaining)
-                                    Haptics.light()
-                                },
-                                onMinimize: {
-                                    restCollapsed = true
-                                },
-                                onSkip: {
-                                    restRemaining = 0
-                                    Haptics.light()
-                                }
+                                exerciseName: restExerciseName,
+                                onAdd30: { adjustRest(by: 30) },
+                                onMinimize: { restCollapsed = true },
+                                onSkip: { stopRest() }
                             )
                         }
                     }
@@ -3526,10 +3536,14 @@ struct ActiveWorkoutView: View {
                 }
             }
             .onReceive(restTicker) { _ in
-                guard restRemaining > 0 else { return }
-                restRemaining -= 1
-                if restRemaining == 0 {
+                guard let end = restEndDate else { return }
+                let remaining = max(0, Int(ceil(end.timeIntervalSinceNow)))
+                restRemaining = remaining
+
+                if remaining == 0 {
+                    restEndDate = nil
                     Haptics.success()
+                    Task { await RestActivityController.shared.end() }
                 }
             }
             .confirmationDialog(
@@ -3542,8 +3556,8 @@ struct ActiveWorkoutView: View {
                 Button(L10n.text("Cancel", "Annuleren"), role: .cancel) {}
             } message: {
                 Text(L10n.text(
-                    "Completed sets, weights and reps will be added to your history.",
-                    "Voltooide sets, gewichten en herhalingen worden aan je geschiedenis toegevoegd."
+                    "Completed strength sets and cardio intervals will be saved to history.",
+                    "Voltooide krachtsets en cardio-intervallen worden in je geschiedenis opgeslagen."
                 ))
             }
             .sheet(isPresented: $showExercisePicker, onDismiss: addPickedExercises) {
@@ -3572,9 +3586,114 @@ struct ActiveWorkoutView: View {
         }
     }
 
+    private var workoutHero: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(RFTheme.accent.opacity(0.14))
+                    Image(systemName: "figure.strengthtraining.traditional")
+                        .font(.title2.bold())
+                        .foregroundStyle(RFTheme.accent)
+                }
+                .frame(width: 52, height: 52)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(session.title)
+                        .font(.title2.bold())
+                        .lineLimit(2)
+
+                    Label(
+                        GymProfileStore.profile(id: session.gymID).name,
+                        systemImage: "mappin.and.ellipse"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(RFTheme.muted)
+                }
+
+                Spacer()
+
+                Button(L10n.finish) {
+                    showFinishConfirm = true
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(RFTheme.success)
+                .font(.subheadline.bold())
+            }
+
+            HStack(spacing: 8) {
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    WorkoutMetricPill(
+                        icon: "clock.fill",
+                        text: durationString(session.duration)
+                    )
+                }
+
+                WorkoutMetricPill(
+                    icon: "checkmark.circle.fill",
+                    text: "\(completedEntries)/\(totalEntries)"
+                )
+
+                if session.totalCardioDistanceKm > 0 {
+                    WorkoutMetricPill(
+                        icon: "figure.run",
+                        text: "\(AppPreferences.displayDistance(session.totalCardioDistanceKm).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.distanceLabel)"
+                    )
+                }
+
+                Spacer()
+            }
+
+            VStack(spacing: 7) {
+                HStack {
+                    Text(L10n.text("Workout progress", "Trainingsvoortgang"))
+                        .font(.caption.bold())
+                        .foregroundStyle(RFTheme.muted)
+                    Spacer()
+                    Text("\(Int(workoutProgress * 100))%")
+                        .font(.caption.bold())
+                        .foregroundStyle(RFTheme.accent)
+                }
+
+                ProgressView(value: workoutProgress)
+                    .tint(RFTheme.accent)
+                    .scaleEffect(x: 1, y: 1.5)
+            }
+
+            Button {
+                withAnimation(.snappy) {
+                    showWorkoutNote.toggle()
+                }
+            } label: {
+                HStack {
+                    Image(systemName: "note.text")
+                    Text(
+                        (session.note ?? "").isEmpty
+                            ? L10n.text("Add workout note", "Trainingsnotitie toevoegen")
+                            : L10n.text("Workout note added", "Trainingsnotitie toegevoegd")
+                    )
+                        .font(.caption.bold())
+                    Spacer()
+                    Image(systemName: showWorkoutNote ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                }
+                .foregroundStyle(RFTheme.muted)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(16)
+        .background(RFTheme.heroGradient)
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(RFTheme.cardBorder)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 14, y: 7)
+    }
+
     private func finishWorkout() {
         session.endedAt = .now
-        restRemaining = 0
+        stopRest()
         try? context.save()
         Haptics.success()
         showSummary = true
@@ -3584,37 +3703,78 @@ struct ActiveWorkoutView: View {
         guard autoRestTimer else { return }
         let seconds = log.restSeconds ?? defaultRestSeconds
         guard seconds > 0 else { return }
+
+        let exerciseName = ExerciseCatalog.find(log.exerciseID)?.name ?? session.title
         restRemaining = seconds
         restOriginal = seconds
         restCollapsed = false
+        restExerciseName = exerciseName
+        restEndDate = Date().addingTimeInterval(TimeInterval(seconds))
+
+        RestActivityController.shared.start(
+            workoutTitle: session.title,
+            exerciseName: exerciseName,
+            seconds: seconds
+        )
+    }
+
+    private func adjustRest(by seconds: Int) {
+        let currentEnd = restEndDate ?? Date().addingTimeInterval(TimeInterval(restRemaining))
+        let newEnd = currentEnd.addingTimeInterval(TimeInterval(seconds))
+        restEndDate = newEnd
+        restRemaining = max(0, Int(ceil(newEnd.timeIntervalSinceNow)))
+        restOriginal = max(restOriginal, restRemaining)
+        RestActivityController.shared.update(
+            exerciseName: restExerciseName,
+            remaining: restRemaining
+        )
+        Haptics.light()
+    }
+
+    private func stopRest() {
+        restRemaining = 0
+        restOriginal = 0
+        restEndDate = nil
+        restExerciseName = ""
+        Task { await RestActivityController.shared.end() }
+        Haptics.light()
     }
 
     private func addPickedExercises() {
         guard !pickerIDs.isEmpty else { return }
         let existing = Set(session.exercises.map(\.exerciseID))
         var nextOrder = (session.exercises.map(\.order).max() ?? -1) + 1
+
         for id in pickerIDs where !existing.contains(id) {
-            session.exercises.append(ExerciseLog(
-                exerciseID: id,
-                order: nextOrder,
-                restSeconds: defaultRestSeconds,
-                sets: (0..<AppPreferences.defaultSets).map { WorkoutSet(order: $0) }
-            ))
+            let exercise = ExerciseCatalog.find(id)
+            let initialCount = exercise?.movement == "cardio" ? 1 : AppPreferences.defaultSets
+
+            session.exercises.append(
+                ExerciseLog(
+                    exerciseID: id,
+                    order: nextOrder,
+                    restSeconds: defaultRestSeconds,
+                    sets: (0..<initialCount).map { WorkoutSet(order: $0) }
+                )
+            )
             nextOrder += 1
         }
+
         pickerIDs = []
         try? context.save()
     }
 
     private func moveExercise(_ log: ExerciseLog, delta: Int) {
-        var ordered = session.exercises.sorted(by: { $0.order < $1.order })
+        var ordered = orderedExercises
         guard let current = ordered.firstIndex(where: { $0.id == log.id }) else { return }
         let destination = current + delta
         guard ordered.indices.contains(destination) else { return }
+
         ordered.swapAt(current, destination)
         for (index, item) in ordered.enumerated() {
             item.order = index
         }
+
         Haptics.light()
         try? context.save()
     }
@@ -3627,9 +3787,16 @@ struct ActiveWorkoutView: View {
                 reps: $0.reps,
                 setTypeRaw: $0.setTypeRaw,
                 rpe: $0.rpe,
-                rir: $0.rir
+                rir: $0.rir,
+                note: $0.note,
+                durationSeconds: $0.durationSeconds,
+                distanceKm: $0.distanceKm,
+                inclinePercent: $0.inclinePercent,
+                calories: $0.calories,
+                averageHeartRate: $0.averageHeartRate
             )
         }
+
         let next = (session.exercises.map(\.order).max() ?? -1) + 1
         session.exercises.append(
             ExerciseLog(
@@ -3643,6 +3810,7 @@ struct ActiveWorkoutView: View {
                 sets: copySets
             )
         )
+
         Haptics.light()
         try? context.save()
     }
@@ -3651,9 +3819,7 @@ struct ActiveWorkoutView: View {
         session.exercises.removeAll { $0.id == log.id }
         context.delete(log)
 
-        for (index, exercise) in session.exercises
-            .sorted(by: { $0.order < $1.order })
-            .enumerated() {
+        for (index, exercise) in orderedExercises.enumerated() {
             exercise.order = index
         }
 
@@ -3661,9 +3827,25 @@ struct ActiveWorkoutView: View {
     }
 }
 
+struct WorkoutMetricPill: View {
+    let icon: String
+    let text: String
+
+    var body: some View {
+        Label(text, systemImage: icon)
+            .font(.caption.bold())
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(RFTheme.field.opacity(0.75))
+            .clipShape(Capsule())
+    }
+}
+
 struct RestTimerBanner: View {
     let remaining: Int
     let original: Int
+    let exerciseName: String
     let onAdd30: () -> Void
     let onMinimize: () -> Void
     let onSkip: () -> Void
@@ -3672,20 +3854,21 @@ struct RestTimerBanner: View {
         HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .stroke(RFTheme.raised, lineWidth: 5)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 5)
                 Circle()
                     .trim(from: 0, to: min(1, Double(remaining) / Double(max(original, 1))))
                     .stroke(RFTheme.accent, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
+
                 Text(durationString(TimeInterval(remaining)))
-                    .font(.caption.bold())
+                    .font(.caption.monospacedDigit().bold())
             }
             .frame(width: 54, height: 54)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(L10n.text("Rest timer", "Rusttimer"))
+                Text(L10n.text("Rest", "Rust"))
                     .font(.headline)
-                Text(L10n.text("Keep browsing or logging while the timer runs.", "Blijf bladeren of loggen terwijl de timer loopt."))
+                Text(exerciseName)
                     .font(.caption)
                     .foregroundStyle(RFTheme.muted)
                     .lineLimit(1)
@@ -3695,6 +3878,7 @@ struct RestTimerBanner: View {
 
             Button("+30", action: onAdd30)
                 .buttonStyle(.bordered)
+                .font(.caption.bold())
 
             Button(action: onMinimize) {
                 Image(systemName: "chevron.down")
@@ -3702,13 +3886,21 @@ struct RestTimerBanner: View {
             .buttonStyle(.bordered)
             .accessibilityLabel(L10n.text("Minimize timer", "Timer minimaliseren"))
 
-            Button(L10n.text("Skip", "Stop"), action: onSkip)
-                .buttonStyle(.borderedProminent)
-                .tint(RFTheme.accent)
+            Button(action: onSkip) {
+                Image(systemName: "forward.end.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(RFTheme.accent)
+            .accessibilityLabel(L10n.text("Skip rest", "Rust overslaan"))
         }
         .padding(10)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(Color.white.opacity(0.10))
+        )
+        .shadow(color: Color.black.opacity(0.20), radius: 12, y: 4)
     }
 }
 
@@ -3719,7 +3911,7 @@ struct RestTimerCompactChip: View {
     let onSkip: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Button(action: onExpand) {
                 HStack(spacing: 7) {
                     Image(systemName: "timer")
@@ -3728,9 +3920,13 @@ struct RestTimerCompactChip: View {
                     Image(systemName: "chevron.up")
                         .font(.caption)
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(RFTheme.accent)
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .background(RFTheme.accent)
+            .clipShape(Capsule())
 
             Button("+30", action: onAdd30)
                 .buttonStyle(.bordered)
@@ -3743,9 +3939,10 @@ struct RestTimerCompactChip: View {
 
             Spacer(minLength: 0)
         }
-        .padding(8)
+        .padding(7)
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
+        .shadow(color: Color.black.opacity(0.18), radius: 10, y: 4)
     }
 }
 
