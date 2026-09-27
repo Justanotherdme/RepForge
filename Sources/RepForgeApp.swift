@@ -2731,36 +2731,56 @@ struct ExercisePickerView: View {
     @Binding var selectedIDs: [String]
     @State private var search = ""
     @State private var muscle = "All"
+    @AppStorage("exerciseShortcutRevision") private var shortcutRevision = 0
 
     private var filtered: [ExerciseDefinition] {
-        ExerciseCatalog.all.filter { ex in
-            (search.isEmpty || ex.name.localizedCaseInsensitiveContains(search)) &&
+        _ = shortcutRevision
+        return ExerciseCatalog.all.filter { ex in
+            ExerciseSearch.matches(ex, query: search) &&
             (muscle == "All" || ex.muscle == muscle)
         }
     }
 
+    private var favorites: [ExerciseDefinition] {
+        ExerciseShortcutStore.favorites.compactMap(ExerciseCatalog.find)
+    }
+
+    private var recent: [ExerciseDefinition] {
+        ExerciseShortcutStore.recent
+            .filter { !ExerciseShortcutStore.favorites.contains($0) }
+            .compactMap(ExerciseCatalog.find)
+    }
+
+    private var showShortcuts: Bool {
+        search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && muscle == "All"
+    }
+
     var body: some View {
         NavigationStack {
-            List(filtered) { ex in
-                Button {
-                    if selectedIDs.contains(ex.id) {
-                        selectedIDs.removeAll { $0 == ex.id }
-                    } else {
-                        selectedIDs.append(ex.id)
-                    }
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(ex.name).foregroundStyle(.primary).font(.headline)
-                            Text("\(ex.muscle) • \(ex.equipment)").foregroundStyle(.secondary).font(.caption)
+            List {
+                if showShortcuts, !favorites.isEmpty {
+                    Section(L10n.text("Favorites", "Favorieten")) {
+                        ForEach(favorites) { ex in
+                            exerciseRow(ex)
                         }
-                        Spacer()
-                        Image(systemName: selectedIDs.contains(ex.id) ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(selectedIDs.contains(ex.id) ? RFTheme.accent : RFTheme.muted)
+                    }
+                }
+
+                if showShortcuts, !recent.isEmpty {
+                    Section(L10n.text("Recent", "Recent")) {
+                        ForEach(Array(recent.prefix(10))) { ex in
+                            exerciseRow(ex)
+                        }
+                    }
+                }
+
+                Section(showShortcuts ? L10n.text("All exercises", "Alle oefeningen") : L10n.exercises) {
+                    ForEach(filtered) { ex in
+                        exerciseRow(ex)
                     }
                 }
             }
-            .searchable(text: $search, prompt: "Search exercises")
+            .searchable(text: $search, prompt: L10n.text("Search exercises, aliases or equipment", "Zoek oefeningen, aliassen of apparatuur"))
             .scrollDismissesKeyboard(.interactively)
             .scrollContentBackground(.hidden)
             .background(RFTheme.bg)
@@ -2769,9 +2789,11 @@ struct ExercisePickerView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack {
                         ForEach(["All"] + ExerciseCatalog.muscles, id: \.self) { item in
-                            Button(item) { muscle = item }
-                                .buttonStyle(.bordered)
-                                .tint(muscle == item ? RFTheme.accent : .gray)
+                            Button(item == "All" ? L10n.text("All", "Alles") : item) {
+                                muscle = item
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(muscle == item ? RFTheme.accent : .gray)
                         }
                     }
                     .padding(.horizontal)
@@ -2782,9 +2804,11 @@ struct ExercisePickerView: View {
             .safeAreaInset(edge: .bottom) {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(selectedIDs.isEmpty ? "No exercises selected" : "\(selectedIDs.count) selected")
+                        Text(selectedIDs.isEmpty
+                             ? L10n.text("No exercises selected", "Geen oefeningen geselecteerd")
+                             : "\(selectedIDs.count) \(L10n.text("selected", "geselecteerd"))")
                             .font(.caption.bold())
-                        Text("Tap exercises to add or remove them")
+                        Text(L10n.text("Tap an exercise to add or remove it", "Tik op een oefening om deze toe te voegen of te verwijderen"))
                             .font(.caption2)
                             .foregroundStyle(RFTheme.muted)
                     }
@@ -2794,7 +2818,9 @@ struct ExercisePickerView: View {
                     Button {
                         dismiss()
                     } label: {
-                        Text(selectedIDs.isEmpty ? "Done" : "Add \(selectedIDs.count)")
+                        Text(selectedIDs.isEmpty
+                             ? L10n.done
+                             : "\(L10n.text("Add", "Voeg toe")) \(selectedIDs.count)")
                             .font(.headline)
                             .padding(.horizontal, 18)
                             .padding(.vertical, 10)
@@ -2808,12 +2834,54 @@ struct ExercisePickerView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    Button(L10n.text("Close", "Sluiten")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }.bold()
+                    Button(L10n.done) { dismiss() }.bold()
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func exerciseRow(_ ex: ExerciseDefinition) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                if selectedIDs.contains(ex.id) {
+                    selectedIDs.removeAll { $0 == ex.id }
+                } else {
+                    selectedIDs.append(ex.id)
+                    ExerciseShortcutStore.recordRecent(ex.id)
+                }
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(ex.name)
+                            .foregroundStyle(.primary)
+                            .font(.headline)
+                        Text("\(ex.muscle) • \(ex.equipment)")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: selectedIDs.contains(ex.id) ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(selectedIDs.contains(ex.id) ? RFTheme.accent : RFTheme.muted)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                ExerciseShortcutStore.toggleFavorite(ex.id)
+            } label: {
+                Image(systemName: ExerciseShortcutStore.isFavorite(ex.id) ? "star.fill" : "star")
+                    .foregroundStyle(ExerciseShortcutStore.isFavorite(ex.id) ? .yellow : RFTheme.muted)
+                    .frame(width: 28, height: 36)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L10n.text("Toggle favorite", "Favoriet wisselen"))
         }
     }
 }
@@ -4093,7 +4161,7 @@ struct ExerciseLibraryView: View {
     private var filtered: [ExerciseDefinition] {
         _ = refreshToken
         return ExerciseCatalog.all.filter {
-            (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) &&
+            ExerciseSearch.matches($0, query: search) &&
             (muscle == "All" || $0.muscle == muscle)
         }
     }
@@ -4134,6 +4202,20 @@ struct ExerciseLibraryView: View {
                     }
                     .padding(.vertical, 4)
                 }
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    Button {
+                        ExerciseShortcutStore.toggleFavorite(ex.id)
+                        refreshToken = UUID()
+                    } label: {
+                        Label(
+                            ExerciseShortcutStore.isFavorite(ex.id)
+                                ? L10n.text("Unfavorite", "Verwijder favoriet")
+                                : L10n.text("Favorite", "Favoriet"),
+                            systemImage: ExerciseShortcutStore.isFavorite(ex.id) ? "star.slash" : "star.fill"
+                        )
+                    }
+                    .tint(.yellow)
+                }
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     if CustomExerciseStore.isCustom(ex.id) {
                         Button(role: .destructive) {
@@ -4147,7 +4229,7 @@ struct ExerciseLibraryView: View {
             .id(refreshToken)
             .scrollContentBackground(.hidden)
             .background(RFTheme.bg)
-            .searchable(text: $search, prompt: L10n.text("Search exercises", "Zoek oefeningen"))
+            .searchable(text: $search, prompt: L10n.text("Search exercises, aliases or equipment", "Zoek oefeningen, aliassen of apparatuur"))
             .navigationTitle(L10n.exercises)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
