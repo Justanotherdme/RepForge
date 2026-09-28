@@ -151,7 +151,14 @@ enum AppPreferences {
 
 enum L10n {
     static func text(_ english: String, _ dutch: String) -> String {
-        AppPreferences.language == "nl" ? dutch : english
+        switch AppPreferences.language {
+        case "nl":
+            return dutch
+        case "es", "de", "fr":
+            return LocalizationCatalog.translate(english, language: AppPreferences.language)
+        default:
+            return english
+        }
     }
 
     static var profile: String { text("Profile", "Profiel") }
@@ -180,6 +187,15 @@ enum RFTheme {
         case "emerald": return Color(red: 0.025, green: 0.080, blue: 0.065)
         case "orange": return Color(red: 0.105, green: 0.055, blue: 0.025)
         case "purple": return Color(red: 0.070, green: 0.040, blue: 0.105)
+        case "midnight": return Color(red: 0.012, green: 0.020, blue: 0.055)
+        case "cyan": return Color(red: 0.018, green: 0.070, blue: 0.082)
+        case "teal": return Color(red: 0.018, green: 0.065, blue: 0.060)
+        case "crimson": return Color(red: 0.085, green: 0.022, blue: 0.032)
+        case "rose": return Color(red: 0.082, green: 0.030, blue: 0.064)
+        case "gold": return Color(red: 0.095, green: 0.070, blue: 0.020)
+        case "forest": return Color(red: 0.030, green: 0.060, blue: 0.035)
+        case "slate": return Color(red: 0.045, green: 0.052, blue: 0.065)
+        case "neon": return Color(red: 0.018, green: 0.028, blue: 0.024)
         default: return Color(red: 0.055, green: 0.070, blue: 0.078)
         }
     }
@@ -195,6 +211,15 @@ enum RFTheme {
         case "emerald": return Color(red: 0.055, green: 0.145, blue: 0.110)
         case "orange": return Color(red: 0.175, green: 0.095, blue: 0.045)
         case "purple": return Color(red: 0.125, green: 0.075, blue: 0.180)
+        case "midnight": return Color(red: 0.038, green: 0.055, blue: 0.115)
+        case "cyan": return Color(red: 0.040, green: 0.130, blue: 0.148)
+        case "teal": return Color(red: 0.038, green: 0.125, blue: 0.110)
+        case "crimson": return Color(red: 0.155, green: 0.050, blue: 0.065)
+        case "rose": return Color(red: 0.150, green: 0.060, blue: 0.120)
+        case "gold": return Color(red: 0.160, green: 0.115, blue: 0.035)
+        case "forest": return Color(red: 0.060, green: 0.120, blue: 0.070)
+        case "slate": return Color(red: 0.095, green: 0.110, blue: 0.135)
+        case "neon": return Color(red: 0.035, green: 0.085, blue: 0.060)
         default: return Color(red: 0.105, green: 0.135, blue: 0.150)
         }
     }
@@ -210,6 +235,15 @@ enum RFTheme {
         case "emerald": return Color(red: 0.080, green: 0.190, blue: 0.145)
         case "orange": return Color(red: 0.220, green: 0.125, blue: 0.060)
         case "purple": return Color(red: 0.175, green: 0.105, blue: 0.245)
+        case "midnight": return Color(red: 0.060, green: 0.082, blue: 0.165)
+        case "cyan": return Color(red: 0.060, green: 0.175, blue: 0.195)
+        case "teal": return Color(red: 0.055, green: 0.170, blue: 0.145)
+        case "crimson": return Color(red: 0.210, green: 0.070, blue: 0.090)
+        case "rose": return Color(red: 0.205, green: 0.085, blue: 0.160)
+        case "gold": return Color(red: 0.215, green: 0.155, blue: 0.050)
+        case "forest": return Color(red: 0.085, green: 0.165, blue: 0.095)
+        case "slate": return Color(red: 0.135, green: 0.155, blue: 0.185)
+        case "neon": return Color(red: 0.050, green: 0.130, blue: 0.085)
         default: return Color(red: 0.140, green: 0.175, blue: 0.190)
         }
     }
@@ -225,6 +259,15 @@ enum RFTheme {
         case "emerald": return Color(red: 0.10, green: 0.78, blue: 0.48)
         case "orange": return Color(red: 1.0, green: 0.48, blue: 0.12)
         case "purple": return Color(red: 0.63, green: 0.43, blue: 1.0)
+        case "midnight": return Color(red: 0.40, green: 0.56, blue: 1.0)
+        case "cyan": return Color(red: 0.08, green: 0.82, blue: 0.94)
+        case "teal": return Color(red: 0.08, green: 0.80, blue: 0.68)
+        case "crimson": return Color(red: 1.0, green: 0.24, blue: 0.36)
+        case "rose": return Color(red: 1.0, green: 0.36, blue: 0.68)
+        case "gold": return Color(red: 1.0, green: 0.72, blue: 0.18)
+        case "forest": return Color(red: 0.32, green: 0.78, blue: 0.38)
+        case "slate": return Color(red: 0.64, green: 0.72, blue: 0.84)
+        case "neon": return Color(red: 0.30, green: 1.0, blue: 0.54)
         default: return Color(red: 0.18, green: 0.63, blue: 1.0)
         }
     }
@@ -2565,7 +2608,7 @@ struct StartWorkoutView: View {
 
                             Spacer()
 
-                            Text("0.2.3")
+                            Text("0.2.4")
                                 .font(.caption.bold())
                                 .foregroundStyle(RFTheme.accent)
                                 .padding(.horizontal, 10)
@@ -8738,7 +8781,16 @@ struct ThemeSelector: View {
         ("navy", "Navy", Color(red: 0.025, green: 0.055, blue: 0.095), Color(red: 0.070, green: 0.105, blue: 0.155), Color(red: 0.18, green: 0.63, blue: 1.0)),
         ("emerald", "Emerald", Color(red: 0.025, green: 0.080, blue: 0.065), Color(red: 0.055, green: 0.145, blue: 0.110), Color(red: 0.10, green: 0.78, blue: 0.48)),
         ("orange", "Orange", Color(red: 0.105, green: 0.055, blue: 0.025), Color(red: 0.175, green: 0.095, blue: 0.045), Color(red: 1.0, green: 0.48, blue: 0.12)),
-        ("purple", "Purple", Color(red: 0.070, green: 0.040, blue: 0.105), Color(red: 0.125, green: 0.075, blue: 0.180), Color(red: 0.63, green: 0.43, blue: 1.0))
+        ("purple", "Purple", Color(red: 0.070, green: 0.040, blue: 0.105), Color(red: 0.125, green: 0.075, blue: 0.180), Color(red: 0.63, green: 0.43, blue: 1.0)),
+        ("midnight", "Midnight", Color(red: 0.012, green: 0.020, blue: 0.055), Color(red: 0.038, green: 0.055, blue: 0.115), Color(red: 0.40, green: 0.56, blue: 1.0)),
+        ("cyan", "Arctic Cyan", Color(red: 0.018, green: 0.070, blue: 0.082), Color(red: 0.040, green: 0.130, blue: 0.148), Color(red: 0.08, green: 0.82, blue: 0.94)),
+        ("teal", "Deep Teal", Color(red: 0.018, green: 0.065, blue: 0.060), Color(red: 0.038, green: 0.125, blue: 0.110), Color(red: 0.08, green: 0.80, blue: 0.68)),
+        ("crimson", "Crimson", Color(red: 0.085, green: 0.022, blue: 0.032), Color(red: 0.155, green: 0.050, blue: 0.065), Color(red: 1.0, green: 0.24, blue: 0.36)),
+        ("rose", "Rose", Color(red: 0.082, green: 0.030, blue: 0.064), Color(red: 0.150, green: 0.060, blue: 0.120), Color(red: 1.0, green: 0.36, blue: 0.68)),
+        ("gold", "Gold", Color(red: 0.095, green: 0.070, blue: 0.020), Color(red: 0.160, green: 0.115, blue: 0.035), Color(red: 1.0, green: 0.72, blue: 0.18)),
+        ("forest", "Forest", Color(red: 0.030, green: 0.060, blue: 0.035), Color(red: 0.060, green: 0.120, blue: 0.070), Color(red: 0.32, green: 0.78, blue: 0.38)),
+        ("slate", "Slate", Color(red: 0.045, green: 0.052, blue: 0.065), Color(red: 0.095, green: 0.110, blue: 0.135), Color(red: 0.64, green: 0.72, blue: 0.84)),
+        ("neon", "Neon", Color(red: 0.018, green: 0.028, blue: 0.024), Color(red: 0.035, green: 0.085, blue: 0.060), Color(red: 0.30, green: 1.0, blue: 0.54))
     ]
 
     var body: some View {
@@ -9048,8 +9100,8 @@ struct SettingsView: View {
     @State private var backupMessage: String?
 
     private var appVersionDisplay: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.3"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "6"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.4"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "7"
         return "\(version) (\(build))"
     }
 
@@ -9129,6 +9181,9 @@ struct SettingsView: View {
                     Picker(L10n.text("Language", "Taal"), selection: $appLanguage) {
                         Text("English").tag("en")
                         Text("Nederlands").tag("nl")
+                        Text("Español").tag("es")
+                        Text("Deutsch").tag("de")
+                        Text("Français").tag("fr")
                     }
 
                     Picker(L10n.text("Measurement system", "Meetsysteem"), selection: $measurementSystem) {
@@ -9331,8 +9386,8 @@ struct SettingsView: View {
                     )
                     Label(
                         L10n.text(
-                            "0.2.3 includes the redesigned workout UI, cardio metrics, collapsible exercise cards and the improved rest timer.",
-                            "0.2.3 bevat de vernieuwde trainingsinterface, cardiometingen, inklapbare oefenkaarten en de verbeterde rusttimer."
+                            "0.2.4 adds 9 new themes plus Spanish, German and French interface translations.",
+                            "0.2.4 voegt 9 nieuwe thema's toe plus Spaanse, Duitse en Franse interfacevertalingen."
                         ),
                         systemImage: "sparkles"
                     )

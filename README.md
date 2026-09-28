@@ -10,6 +10,8 @@ Local-first iOS strength-training log built with SwiftUI + SwiftData + Swift Cha
 - Full completed-workout history and session volume
 - Local profile with training statistics
 - Exercise guide pages with programmatic movement animations and technique cues
+- 16 selectable visual themes, including OLED, Midnight, Crimson, Arctic Cyan, Forest and Neon
+- Interface language support for English, Dutch, Spanish, German and French
 - Per-exercise history, weight chart, estimated 1RM chart and records
 - GitHub Actions workflow that builds an **unsigned IPA** on a macOS runner, so no local Mac/Xcode is required
 
