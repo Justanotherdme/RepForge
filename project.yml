@@ -6,8 +6,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: 5.0
-    CURRENT_PROJECT_VERSION: 17
-    MARKETING_VERSION: 0.2.8
+    CURRENT_PROJECT_VERSION: 18
+    MARKETING_VERSION: 0.2.9
 targets:
   RepForge:
     type: application

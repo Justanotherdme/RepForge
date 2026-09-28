@@ -2569,7 +2569,7 @@ struct StartWorkoutView: View {
 
                             Spacer()
 
-                            Text("0.2.8")
+                            Text("0.2.9")
                                 .font(.caption.bold())
                                 .foregroundStyle(RFTheme.accent)
                                 .padding(.horizontal, 10)
@@ -9196,8 +9196,8 @@ struct SettingsView: View {
     @State private var strongImportMessage: String?
 
     private var appVersionDisplay: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.8"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "17"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.9"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "18"
         return "\(version) (\(build))"
     }
 
@@ -9482,8 +9482,8 @@ struct SettingsView: View {
                     )
                     Label(
                         L10n.text(
-                            "0.2.8 adds safe deletion of individual workout-history entries.",
-                            "0.2.8 voegt veilig verwijderen van afzonderlijke trainingsgeschiedenis toe."
+                            "0.2.9 adds in-app project support and a completely refreshed README.",
+                            "0.2.9 voegt ondersteuning voor het project in de app toe en een volledig vernieuwde README."
                         ),
                         systemImage: "sparkles"
                     )
@@ -9494,6 +9494,33 @@ struct SettingsView: View {
                         L10n.text("Exercise media", "Oefenmedia"),
                         value: "Free Exercise DB"
                     )
+                }
+
+                Section(L10n.text("Support RepForge", "Steun RepForge")) {
+                    Link(destination: URL(string: "https://ko-fi.com/flippyy")!) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "heart.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(.pink)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(L10n.text("Support on Ko-fi", "Steun via Ko-fi"))
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                Text(L10n.text(
+                                    "RepForge is free. If you enjoy using it, you can support continued development with an optional donation.",
+                                    "RepForge is gratis. Als je de app graag gebruikt, kun je de verdere ontwikkeling steunen met een vrijwillige donatie."
+                                ))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "arrow.up.right")
+                                .foregroundStyle(RFTheme.accent)
+                        }
+                    }
                 }
 
                 Section(L10n.text("Storage & export", "Opslag & export")) {
