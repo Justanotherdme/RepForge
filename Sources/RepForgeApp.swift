@@ -8442,10 +8442,7 @@ struct MuscleHeatMapView: View {
                         .frame(maxWidth: 220)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .padding(.horizontal, 10)
-                .background(Color.black)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .padding(.vertical, 8)
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 115), spacing: 8)], spacing: 8) {
                     ForEach(Array(entries.prefix(8))) { entry in
