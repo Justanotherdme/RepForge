@@ -48,35 +48,25 @@ struct RepForgeRestTimerLiveActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Image(systemName: "dumbbell.fill")
-                        .font(.title2)
-                        .foregroundStyle(.blue)
-                }
-
-                DynamicIslandExpandedRegion(.trailing) {
-                    Text(
-                            timerInterval: context.state.endDate.addingTimeInterval(-TimeInterval(context.state.totalSeconds))...context.state.endDate,
-                            countsDown: true
-                        )
-                        .font(.headline.monospacedDigit().bold())
+                    Image(systemName: "timer")
+                        .font(.headline.bold())
                         .foregroundStyle(.blue)
                 }
 
                 DynamicIslandExpandedRegion(.center) {
-                    Text("RepForge Rest")
-                        .font(.headline)
+                    Text(context.state.exerciseName.isEmpty ? context.attributes.workoutTitle : context.state.exerciseName)
+                        .font(.subheadline.bold())
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
 
-                DynamicIslandExpandedRegion(.bottom) {
-                    HStack {
-                        Text(context.state.exerciseName)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(context.attributes.workoutTitle)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .font(.caption)
+                DynamicIslandExpandedRegion(.trailing) {
+                    Text(
+                        timerInterval: context.state.endDate.addingTimeInterval(-TimeInterval(context.state.totalSeconds))...context.state.endDate,
+                        countsDown: true
+                    )
+                    .font(.subheadline.monospacedDigit().bold())
+                    .foregroundStyle(.blue)
                 }
             } compactLeading: {
                 Image(systemName: "timer")
