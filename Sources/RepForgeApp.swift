@@ -4317,12 +4317,13 @@ struct RestTimerBanner: View {
     let remaining: Int
     let original: Int
     let exerciseName: String
-    let onAdd30: () -> Void
+    let onAdjust: (Int) -> Void
+    let onReset: () -> Void
     let onMinimize: () -> Void
     let onSkip: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             ZStack {
                 Circle()
                     .stroke(Color.white.opacity(0.10), lineWidth: 5)
@@ -4334,7 +4335,7 @@ struct RestTimerBanner: View {
                 Text(durationString(TimeInterval(remaining)))
                     .font(.caption.monospacedDigit().bold())
             }
-            .frame(width: 54, height: 54)
+            .frame(width: 52, height: 52)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(L10n.text("Rest", "Rust"))
@@ -4344,25 +4345,43 @@ struct RestTimerBanner: View {
                     .foregroundStyle(RFTheme.muted)
                     .lineLimit(1)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer()
+            HStack(spacing: 5) {
+                Button("-15") { onAdjust(-15) }
+                    .buttonStyle(.bordered)
+                    .font(.caption2.bold())
 
-            Button("+30", action: onAdd30)
+                Button("+15") { onAdjust(15) }
+                    .buttonStyle(.bordered)
+                    .font(.caption2.bold())
+
+                Menu {
+                    Button("-30 sec") { onAdjust(-30) }
+                    Button("+30 sec") { onAdjust(30) }
+                    Divider()
+                    Button(L10n.text("Reset to default", "Herstel standaard")) {
+                        onReset()
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 28, height: 28)
+                }
                 .buttonStyle(.bordered)
-                .font(.caption.bold())
 
-            Button(action: onMinimize) {
-                Image(systemName: "chevron.down")
-            }
-            .buttonStyle(.bordered)
-            .accessibilityLabel(L10n.text("Minimize timer", "Timer minimaliseren"))
+                Button(action: onMinimize) {
+                    Image(systemName: "chevron.down")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel(L10n.text("Minimize timer", "Timer minimaliseren"))
 
-            Button(action: onSkip) {
-                Image(systemName: "forward.end.fill")
+                Button(action: onSkip) {
+                    Image(systemName: "forward.end.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(RFTheme.accent)
+                .accessibilityLabel(L10n.text("Skip rest", "Rust overslaan"))
             }
-            .buttonStyle(.borderedProminent)
-            .tint(RFTheme.accent)
-            .accessibilityLabel(L10n.text("Skip rest", "Rust overslaan"))
         }
         .padding(10)
         .background(.ultraThinMaterial)
@@ -4378,11 +4397,12 @@ struct RestTimerBanner: View {
 struct RestTimerCompactChip: View {
     let remaining: Int
     let onExpand: () -> Void
-    let onAdd30: () -> Void
+    let onSubtract15: () -> Void
+    let onAdd15: () -> Void
     let onSkip: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             Button(action: onExpand) {
                 HStack(spacing: 7) {
                     Image(systemName: "timer")
@@ -4399,8 +4419,13 @@ struct RestTimerCompactChip: View {
             .background(RFTheme.accent)
             .clipShape(Capsule())
 
-            Button("+30", action: onAdd30)
+            Button("-15", action: onSubtract15)
                 .buttonStyle(.bordered)
+                .font(.caption2.bold())
+
+            Button("+15", action: onAdd15)
+                .buttonStyle(.bordered)
+                .font(.caption2.bold())
 
             Button(action: onSkip) {
                 Image(systemName: "xmark")
