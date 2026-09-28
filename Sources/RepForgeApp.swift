@@ -2532,7 +2532,7 @@ struct StartWorkoutView: View {
 
                             Spacer()
 
-                            Text("0.2.1")
+                            Text("0.2.2")
                                 .font(.caption.bold())
                                 .foregroundStyle(RFTheme.accent)
                                 .padding(.horizontal, 10)
@@ -3724,6 +3724,7 @@ struct ActiveWorkoutView: View {
     @State private var restEndDate: Date?
     @State private var showWorkoutNote = false
     @State private var draggingExerciseID: UUID?
+    @State private var hiddenExerciseIDs: Set<UUID> = []
     @State private var focusMode = false
     @ObservedObject private var heartRateMonitor = HeartRateMonitor.shared
 
@@ -3736,7 +3737,9 @@ struct ActiveWorkoutView: View {
     private let restTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private var orderedExercises: [ExerciseLog] {
-        session.exercises.sorted(by: { $0.order < $1.order })
+        session.exercises
+            .filter { !hiddenExerciseIDs.contains($0.id) }
+            .sorted(by: { $0.order < $1.order })
     }
 
     private var totalEntries: Int {
@@ -4287,14 +4290,47 @@ struct ActiveWorkoutView: View {
     }
 
     private func removeExercise(_ log: ExerciseLog) {
-        session.exercises.removeAll { $0.id == log.id }
-        context.delete(log)
+        let logID = log.id
+        guard !hiddenExerciseIDs.contains(logID) else { return }
 
-        for (index, exercise) in orderedExercises.enumerated() {
-            exercise.order = index
+        // First remove the row from the rendered hierarchy. Cardio rows contain
+        // several live Bindings to WorkoutSet objects; deleting their parent
+        // model in the same render pass can invalidate those bindings.
+        withAnimation(.snappy) {
+            hiddenExerciseIDs.insert(logID)
         }
 
-        try? context.save()
+        if restExerciseName == ExerciseCatalog.find(log.exerciseID)?.name {
+            stopRest()
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+            guard session.exercises.contains(where: { $0.id == logID }) else {
+                hiddenExerciseIDs.remove(logID)
+                return
+            }
+
+            session.exercises.removeAll { $0.id == logID }
+
+            let remaining = session.exercises.sorted(by: { $0.order < $1.order })
+            for (index, exercise) in remaining.enumerated() {
+                exercise.order = index
+            }
+
+            // ExerciseLog owns its WorkoutSet children with a cascade rule, so
+            // deleting the log is sufficient and avoids double-deleting sets.
+            context.delete(log)
+
+            do {
+                try context.save()
+                hiddenExerciseIDs.remove(logID)
+                Haptics.light()
+            } catch {
+                // Keep the app stable if persistence fails; the next render can
+                // show the item again rather than retaining a deleted binding.
+                hiddenExerciseIDs.remove(logID)
+            }
+        }
     }
 }
 
@@ -4322,75 +4358,120 @@ struct RestTimerBanner: View {
     let onMinimize: () -> Void
     let onSkip: () -> Void
 
+    private var progress: Double {
+        min(1, max(0, Double(remaining) / Double(max(original, 1))))
+    }
+
     var body: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .stroke(Color.white.opacity(0.10), lineWidth: 5)
-                Circle()
-                    .trim(from: 0, to: min(1, Double(remaining) / Double(max(original, 1))))
-                    .stroke(RFTheme.accent, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
+        VStack(spacing: 11) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .stroke(RFTheme.field, lineWidth: 6)
 
-                Text(durationString(TimeInterval(remaining)))
-                    .font(.caption.monospacedDigit().bold())
-            }
-            .frame(width: 52, height: 52)
+                    Circle()
+                        .trim(from: 0, to: progress)
+                        .stroke(
+                            RFTheme.accent,
+                            style: StrokeStyle(lineWidth: 6, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(L10n.text("Rest", "Rust"))
-                    .font(.headline)
-                Text(exerciseName)
-                    .font(.caption)
-                    .foregroundStyle(RFTheme.muted)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: 5) {
-                Button("-15") { onAdjust(-15) }
-                    .buttonStyle(.bordered)
-                    .font(.caption2.bold())
-
-                Button("+15") { onAdjust(15) }
-                    .buttonStyle(.bordered)
-                    .font(.caption2.bold())
-
-                Menu {
-                    Button("-30 sec") { onAdjust(-30) }
-                    Button("+30 sec") { onAdjust(30) }
-                    Divider()
-                    Button(L10n.text("Reset to default", "Herstel standaard")) {
-                        onReset()
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .frame(width: 28, height: 28)
+                    Text(durationString(TimeInterval(remaining)))
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .monospacedDigit()
                 }
-                .buttonStyle(.bordered)
+                .frame(width: 58, height: 58)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.text("Rest", "Rust"))
+                        .font(.headline.bold())
+
+                    Text(exerciseName)
+                        .font(.caption)
+                        .foregroundStyle(RFTheme.muted)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
 
                 Button(action: onMinimize) {
                     Image(systemName: "chevron.down")
+                        .font(.subheadline.bold())
+                        .frame(width: 38, height: 38)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .background(RFTheme.field)
+                .clipShape(Circle())
                 .accessibilityLabel(L10n.text("Minimize timer", "Timer minimaliseren"))
 
                 Button(action: onSkip) {
                     Image(systemName: "forward.end.fill")
+                        .font(.headline)
+                        .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(RFTheme.accent)
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .background(RFTheme.accent)
+                .clipShape(RoundedRectangle(cornerRadius: 13))
                 .accessibilityLabel(L10n.text("Skip rest", "Rust overslaan"))
             }
+
+            HStack(spacing: 8) {
+                RestAdjustmentButton(
+                    title: "−15",
+                    systemImage: "minus",
+                    action: { onAdjust(-15) }
+                )
+
+                Button(action: onReset) {
+                    Label(
+                        L10n.text("Reset", "Reset"),
+                        systemImage: "arrow.counterclockwise"
+                    )
+                    .font(.caption.bold())
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(RFTheme.muted)
+                .background(RFTheme.field)
+                .clipShape(RoundedRectangle(cornerRadius: 11))
+
+                RestAdjustmentButton(
+                    title: "+15",
+                    systemImage: "plus",
+                    action: { onAdjust(15) }
+                )
+            }
         }
-        .padding(10)
+        .padding(12)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(Color.white.opacity(0.10))
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(RFTheme.cardBorder)
         )
-        .shadow(color: Color.black.opacity(0.20), radius: 12, y: 4)
+        .shadow(color: Color.black.opacity(0.18), radius: 12, y: 5)
+    }
+}
+
+struct RestAdjustmentButton: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.bold())
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(RFTheme.accent)
+        .background(RFTheme.accent.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 11))
     }
 }
 
@@ -4402,43 +4483,47 @@ struct RestTimerCompactChip: View {
     let onSkip: () -> Void
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 8) {
             Button(action: onExpand) {
-                HStack(spacing: 7) {
+                HStack(spacing: 8) {
                     Image(systemName: "timer")
                     Text(durationString(TimeInterval(remaining)))
                         .font(.headline.monospacedDigit())
                     Image(systemName: "chevron.up")
-                        .font(.caption)
+                        .font(.caption.bold())
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 10)
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white)
             .background(RFTheme.accent)
             .clipShape(Capsule())
 
-            Button("-15", action: onSubtract15)
+            Button("−15", action: onSubtract15)
+                .font(.caption.bold())
                 .buttonStyle(.bordered)
-                .font(.caption2.bold())
 
             Button("+15", action: onAdd15)
+                .font(.caption.bold())
                 .buttonStyle(.bordered)
-                .font(.caption2.bold())
+
+            Spacer(minLength: 0)
 
             Button(action: onSkip) {
-                Image(systemName: "xmark")
+                Image(systemName: "forward.end.fill")
+                    .frame(width: 34, height: 34)
             }
             .buttonStyle(.bordered)
             .accessibilityLabel(L10n.text("Skip rest", "Rust overslaan"))
-
-            Spacer(minLength: 0)
         }
         .padding(7)
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
-        .shadow(color: Color.black.opacity(0.18), radius: 10, y: 4)
+        .overlay(
+            Capsule().stroke(RFTheme.cardBorder)
+        )
+        .shadow(color: Color.black.opacity(0.14), radius: 9, y: 3)
     }
 }
 
@@ -8926,8 +9011,8 @@ struct SettingsView: View {
     @State private var backupMessage: String?
 
     private var appVersionDisplay: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.1"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "4"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.2"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "5"
         return "\(version) (\(build))"
     }
 
@@ -9209,8 +9294,8 @@ struct SettingsView: View {
                     )
                     Label(
                         L10n.text(
-                            "0.2.1 includes the redesigned workout UI, cardio metrics, collapsible exercise cards and the improved rest timer.",
-                            "0.2.1 bevat de vernieuwde trainingsinterface, cardiometingen, inklapbare oefenkaarten en de verbeterde rusttimer."
+                            "0.2.2 includes the redesigned workout UI, cardio metrics, collapsible exercise cards and the improved rest timer.",
+                            "0.2.2 bevat de vernieuwde trainingsinterface, cardiometingen, inklapbare oefenkaarten en de verbeterde rusttimer."
                         ),
                         systemImage: "sparkles"
                     )
