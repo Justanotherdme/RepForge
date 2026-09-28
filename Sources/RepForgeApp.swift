@@ -2299,6 +2299,35 @@ final class ExerciseMediaModel: ObservableObject {
     }
 }
 
+// MARK: - Persistence maintenance
+
+enum PersistenceMaintenance {
+    @MainActor
+    static func cleanupOrphanExerciseLogs(context: ModelContext) {
+        do {
+            let sessions = try context.fetch(FetchDescriptor<WorkoutSession>())
+            let logs = try context.fetch(FetchDescriptor<ExerciseLog>())
+
+            let referencedIDs = Set(
+                sessions.flatMap { session in
+                    session.exercises.map(\.id)
+                }
+            )
+
+            let orphans = logs.filter { !referencedIDs.contains($0.id) }
+            guard !orphans.isEmpty else { return }
+
+            for log in orphans {
+                context.delete(log)
+            }
+
+            try context.save()
+        } catch {
+            // Maintenance should never block startup.
+        }
+    }
+}
+
 // MARK: - App
 
 @main
@@ -2367,6 +2396,10 @@ struct RootView: View {
                 context.insert(UserProfile())
                 try? context.save()
             }
+
+            // Detached exercise logs are removed only when no active workout
+            // row can still hold a SwiftData binding to them.
+            PersistenceMaintenance.cleanupOrphanExerciseLogs(context: context)
         }
         .onOpenURL { url in
             importShareLink(url)
@@ -2532,7 +2565,7 @@ struct StartWorkoutView: View {
 
                             Spacer()
 
-                            Text("0.2.2")
+                            Text("0.2.3")
                                 .font(.caption.bold())
                                 .foregroundStyle(RFTheme.accent)
                                 .padding(.horizontal, 10)
@@ -4291,43 +4324,47 @@ struct ActiveWorkoutView: View {
 
     private func removeExercise(_ log: ExerciseLog) {
         let logID = log.id
+        let exerciseName = ExerciseCatalog.find(log.exerciseID)?.name
         guard !hiddenExerciseIDs.contains(logID) else { return }
 
-        // First remove the row from the rendered hierarchy. Cardio rows contain
-        // several live Bindings to WorkoutSet objects; deleting their parent
-        // model in the same render pass can invalidate those bindings.
+        // Cardio rows hold several live Bindings to their WorkoutSet models.
+        // Deleting the ExerciseLog in the same interaction can invalidate
+        // those bindings. Detach from the workout and save that relationship
+        // change only; stale detached logs are cleaned up on a later launch.
         withAnimation(.snappy) {
             hiddenExerciseIDs.insert(logID)
         }
 
-        if restExerciseName == ExerciseCatalog.find(log.exerciseID)?.name {
+        if restExerciseName == exerciseName {
             stopRest()
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
-            guard session.exercises.contains(where: { $0.id == logID }) else {
+        DispatchQueue.main.async {
+            guard let index = session.exercises.firstIndex(where: { $0.id == logID }) else {
                 hiddenExerciseIDs.remove(logID)
                 return
             }
 
-            session.exercises.removeAll { $0.id == logID }
+            session.exercises.remove(at: index)
 
             let remaining = session.exercises.sorted(by: { $0.order < $1.order })
-            for (index, exercise) in remaining.enumerated() {
-                exercise.order = index
+            for (newIndex, exercise) in remaining.enumerated() {
+                exercise.order = newIndex
             }
-
-            // ExerciseLog owns its WorkoutSet children with a cascade rule, so
-            // deleting the log is sufficient and avoids double-deleting sets.
-            context.delete(log)
 
             do {
                 try context.save()
                 hiddenExerciseIDs.remove(logID)
                 Haptics.light()
             } catch {
-                // Keep the app stable if persistence fails; the next render can
-                // show the item again rather than retaining a deleted binding.
+                if !session.exercises.contains(where: { $0.id == logID }) {
+                    session.exercises.append(log)
+                    for (newIndex, exercise) in session.exercises
+                        .sorted(by: { $0.order < $1.order })
+                        .enumerated() {
+                        exercise.order = newIndex
+                    }
+                }
                 hiddenExerciseIDs.remove(logID)
             }
         }
@@ -9011,8 +9048,8 @@ struct SettingsView: View {
     @State private var backupMessage: String?
 
     private var appVersionDisplay: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.2"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "5"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.3"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "6"
         return "\(version) (\(build))"
     }
 
@@ -9294,8 +9331,8 @@ struct SettingsView: View {
                     )
                     Label(
                         L10n.text(
-                            "0.2.2 includes the redesigned workout UI, cardio metrics, collapsible exercise cards and the improved rest timer.",
-                            "0.2.2 bevat de vernieuwde trainingsinterface, cardiometingen, inklapbare oefenkaarten en de verbeterde rusttimer."
+                            "0.2.3 includes the redesigned workout UI, cardio metrics, collapsible exercise cards and the improved rest timer.",
+                            "0.2.3 bevat de vernieuwde trainingsinterface, cardiometingen, inklapbare oefenkaarten en de verbeterde rusttimer."
                         ),
                         systemImage: "sparkles"
                     )
