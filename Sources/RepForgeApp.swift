@@ -8435,7 +8435,7 @@ struct MuscleHeatMapView: View {
                     BodyMuscleFigure(side: .front, intensity: intensity)
                     BodyMuscleFigure(side: .back, intensity: intensity)
                 }
-                .frame(height: 235)
+                .frame(height: 315)
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 115), spacing: 8)], spacing: 8) {
                     ForEach(Array(entries.prefix(8))) { entry in
@@ -8464,149 +8464,10 @@ struct MuscleHeatMapView: View {
     }
 
     private func heatColor(_ value: Double) -> Color {
-        RFTheme.accent.opacity(0.20 + (0.80 * value))
+        MuscleHeatPalette.color(for: value)
     }
 }
 
-struct BodyMuscleFigure: View {
-    let side: MuscleContribution.BodySide
-    let intensity: [String: Double]
-
-    private struct Zone: Identifiable {
-        let id: String
-        let muscle: String
-        let x: CGFloat
-        let y: CGFloat
-        let width: CGFloat
-        let height: CGFloat
-        let rotation: Double
-
-        init(_ id: String, _ muscle: String, _ x: CGFloat, _ y: CGFloat, _ width: CGFloat, _ height: CGFloat, _ rotation: Double = 0) {
-            self.id = id
-            self.muscle = muscle
-            self.x = x
-            self.y = y
-            self.width = width
-            self.height = height
-            self.rotation = rotation
-        }
-    }
-
-    private var zones: [Zone] {
-        if side == .front {
-            return [
-                Zone("neck", "Neck", 0.50, 0.18, 0.10, 0.07),
-                Zone("front-delt-l", "Front Delts", 0.37, 0.27, 0.10, 0.08, -18),
-                Zone("front-delt-r", "Front Delts", 0.63, 0.27, 0.10, 0.08, 18),
-                Zone("side-delt-l", "Side Delts", 0.32, 0.28, 0.08, 0.09, -20),
-                Zone("side-delt-r", "Side Delts", 0.68, 0.28, 0.08, 0.09, 20),
-                Zone("upper-chest-l", "Upper Chest", 0.44, 0.30, 0.12, 0.07, -8),
-                Zone("upper-chest-r", "Upper Chest", 0.56, 0.30, 0.12, 0.07, 8),
-                Zone("mid-chest-l", "Mid Chest", 0.44, 0.35, 0.13, 0.09),
-                Zone("mid-chest-r", "Mid Chest", 0.56, 0.35, 0.13, 0.09),
-                Zone("lower-chest", "Lower Chest", 0.50, 0.40, 0.22, 0.06),
-                Zone("biceps-l", "Biceps", 0.28, 0.39, 0.07, 0.14, -7),
-                Zone("biceps-r", "Biceps", 0.72, 0.39, 0.07, 0.14, 7),
-                Zone("brachialis-l", "Brachialis", 0.31, 0.43, 0.05, 0.10, -7),
-                Zone("brachialis-r", "Brachialis", 0.69, 0.43, 0.05, 0.10, 7),
-                Zone("forearm-l", "Forearms", 0.25, 0.53, 0.06, 0.16, -5),
-                Zone("forearm-r", "Forearms", 0.75, 0.53, 0.06, 0.16, 5),
-                Zone("abs", "Abs", 0.50, 0.50, 0.15, 0.20),
-                Zone("oblique-l", "Obliques", 0.40, 0.51, 0.07, 0.18),
-                Zone("oblique-r", "Obliques", 0.60, 0.51, 0.07, 0.18),
-                Zone("hip-flexor-l", "Hip Flexors", 0.45, 0.61, 0.07, 0.08),
-                Zone("hip-flexor-r", "Hip Flexors", 0.55, 0.61, 0.07, 0.08),
-                Zone("abductor-l", "Abductors", 0.37, 0.64, 0.07, 0.10, 15),
-                Zone("abductor-r", "Abductors", 0.63, 0.64, 0.07, 0.10, -15),
-                Zone("adductor-l", "Adductors", 0.46, 0.69, 0.07, 0.14, -5),
-                Zone("adductor-r", "Adductors", 0.54, 0.69, 0.07, 0.14, 5),
-                Zone("quad-l", "Quadriceps", 0.41, 0.76, 0.10, 0.24),
-                Zone("quad-r", "Quadriceps", 0.59, 0.76, 0.10, 0.24),
-                Zone("shin-l", "Shins", 0.41, 0.91, 0.065, 0.14),
-                Zone("shin-r", "Shins", 0.59, 0.91, 0.065, 0.14)
-            ]
-        }
-
-        return [
-            Zone("traps", "Traps", 0.50, 0.26, 0.20, 0.12),
-            Zone("rear-delt-l", "Rear Delts", 0.34, 0.29, 0.09, 0.09, -18),
-            Zone("rear-delt-r", "Rear Delts", 0.66, 0.29, 0.09, 0.09, 18),
-            Zone("upper-back", "Upper Back", 0.50, 0.35, 0.25, 0.13),
-            Zone("lat-l", "Lats", 0.41, 0.43, 0.10, 0.20, 8),
-            Zone("lat-r", "Lats", 0.59, 0.43, 0.10, 0.20, -8),
-            Zone("triceps-l", "Triceps", 0.28, 0.40, 0.07, 0.15, -7),
-            Zone("triceps-r", "Triceps", 0.72, 0.40, 0.07, 0.15, 7),
-            Zone("erector-l", "Spinal Erectors", 0.46, 0.51, 0.055, 0.23),
-            Zone("erector-r", "Spinal Erectors", 0.54, 0.51, 0.055, 0.23),
-            Zone("glute-l", "Glutes", 0.43, 0.64, 0.12, 0.13),
-            Zone("glute-r", "Glutes", 0.57, 0.64, 0.12, 0.13),
-            Zone("ham-l", "Hamstrings", 0.41, 0.77, 0.09, 0.23),
-            Zone("ham-r", "Hamstrings", 0.59, 0.77, 0.09, 0.23),
-            Zone("calf-l", "Calves", 0.41, 0.91, 0.07, 0.15),
-            Zone("calf-r", "Calves", 0.59, 0.91, 0.07, 0.15)
-        ]
-    }
-
-    var body: some View {
-        GeometryReader { proxy in
-            let w = proxy.size.width
-            let h = proxy.size.height
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(RFTheme.raised.opacity(0.55))
-
-                Group {
-                    Circle()
-                        .frame(width: w * 0.13, height: w * 0.13)
-                        .position(x: w * 0.50, y: h * 0.14)
-
-                    RoundedRectangle(cornerRadius: w * 0.09)
-                        .frame(width: w * 0.30, height: h * 0.34)
-                        .position(x: w * 0.50, y: h * 0.40)
-
-                    Capsule()
-                        .frame(width: w * 0.075, height: h * 0.34)
-                        .rotationEffect(.degrees(6))
-                        .position(x: w * 0.28, y: h * 0.42)
-
-                    Capsule()
-                        .frame(width: w * 0.075, height: h * 0.34)
-                        .rotationEffect(.degrees(-6))
-                        .position(x: w * 0.72, y: h * 0.42)
-
-                    Capsule()
-                        .frame(width: w * 0.10, height: h * 0.43)
-                        .position(x: w * 0.41, y: h * 0.75)
-
-                    Capsule()
-                        .frame(width: w * 0.10, height: h * 0.43)
-                        .position(x: w * 0.59, y: h * 0.75)
-                }
-                .foregroundStyle(RFTheme.muted.opacity(0.20))
-
-                ForEach(zones) { zone in
-                    if let value = intensity[zone.muscle], value > 0 {
-                        Capsule()
-                            .fill(RFTheme.accent.opacity(0.22 + (0.78 * value)))
-                            .frame(width: max(5, w * zone.width), height: max(5, h * zone.height))
-                            .rotationEffect(.degrees(zone.rotation))
-                            .overlay(Capsule().stroke(Color.white.opacity(0.30), lineWidth: 0.8))
-                            .position(x: w * zone.x, y: h * zone.y)
-                    }
-                }
-
-                VStack {
-                    Text(side == .front ? L10n.text("Front", "Voor") : L10n.text("Back", "Achter"))
-                        .font(.caption.bold())
-                        .foregroundStyle(RFTheme.muted)
-                    Spacer()
-                }
-                .padding(.top, 8)
-            }
-        }
-    }
-}
 
 // MARK: - Profile
 
