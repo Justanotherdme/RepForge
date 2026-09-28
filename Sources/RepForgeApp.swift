@@ -9092,6 +9092,50 @@ struct GymEditView: View {
     }
 }
 
+struct StrongCSVDocumentPicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick, onCancel: onCancel)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let csvType = UTType(filenameExtension: "csv") ?? .commaSeparatedText
+        let picker = UIDocumentPickerViewController(
+            forOpeningContentTypes: [csvType, .commaSeparatedText, .plainText, .data],
+            asCopy: true
+        )
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL) -> Void
+        let onCancel: () -> Void
+
+        init(onPick: @escaping (URL) -> Void, onCancel: @escaping () -> Void) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else {
+                onCancel()
+                return
+            }
+            onPick(url)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onCancel()
+        }
+    }
+}
+
 struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var exportSessions: [WorkoutSession]
@@ -9133,7 +9177,7 @@ struct SettingsView: View {
 
     private var appVersionDisplay: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.6"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "14"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "15"
         return "\(version) (\(build))"
     }
 
@@ -9505,12 +9549,16 @@ struct SettingsView: View {
             ) { result in
                 restoreBackup(result)
             }
-            .fileImporter(
-                isPresented: $showStrongImporter,
-                allowedContentTypes: [.item],
-                allowsMultipleSelection: false
-            ) { result in
-                importStrongCSV(result)
+            .sheet(isPresented: $showStrongImporter) {
+                StrongCSVDocumentPicker(
+                    onPick: { url in
+                        showStrongImporter = false
+                        importStrongCSV(url)
+                    },
+                    onCancel: {
+                        showStrongImporter = false
+                    }
+                )
             }
             .alert(
                 L10n.text("Strong Import", "Strong-import"),
@@ -9537,15 +9585,8 @@ struct SettingsView: View {
         }
     }
 
-    private func importStrongCSV(_ result: Result<[URL], Error>) {
+    private func importStrongCSV(_ url: URL) {
         do {
-            let urls = try result.get()
-            guard let url = urls.first else { return }
-            let accessing = url.startAccessingSecurityScopedResource()
-            defer {
-                if accessing { url.stopAccessingSecurityScopedResource() }
-            }
-
             let data = try Data(contentsOf: url)
             let summary = try StrongCSVImporter.importCSV(
                 data: data,
