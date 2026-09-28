@@ -2569,7 +2569,7 @@ struct StartWorkoutView: View {
 
                             Spacer()
 
-                            Text("0.2.7")
+                            Text("0.2.8")
                                 .font(.caption.bold())
                                 .foregroundStyle(RFTheme.accent)
                                 .padding(.horizontal, 10)
@@ -6134,8 +6134,10 @@ struct WorkoutSummaryView: View {
 // MARK: - History
 
 struct HistoryView: View {
+    @Environment(\.modelContext) private var context
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var sessions: [WorkoutSession]
 
+    @State private var deleteCandidate: WorkoutSession?
     @State private var mode = 0
     @State private var search = ""
     @State private var gymFilter = "all"
@@ -6232,6 +6234,13 @@ struct HistoryView: View {
                             } label: {
                                 historyRow(session)
                             }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    deleteCandidate = session
+                                } label: {
+                                    Label(L10n.text("Delete", "Verwijder"), systemImage: "trash")
+                                }
+                            }
                         }
                         .scrollContentBackground(.hidden)
                     }
@@ -6245,6 +6254,30 @@ struct HistoryView: View {
                 text: $search,
                 prompt: L10n.text("Search workouts, exercises, gyms…", "Zoek trainingen, oefeningen, gyms…")
             )
+            .confirmationDialog(
+                L10n.text("Delete workout history?", "Trainingsgeschiedenis verwijderen?"),
+                isPresented: Binding(
+                    get: { deleteCandidate != nil },
+                    set: { if !$0 { deleteCandidate = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button(L10n.text("Delete workout", "Training verwijderen"), role: .destructive) {
+                    if let session = deleteCandidate {
+                        context.delete(session)
+                        try? context.save()
+                        deleteCandidate = nil
+                    }
+                }
+                Button(L10n.text("Cancel", "Annuleren"), role: .cancel) {
+                    deleteCandidate = nil
+                }
+            } message: {
+                Text(L10n.text(
+                    "This permanently removes this workout and all of its logged sets.",
+                    "Hiermee worden deze training en alle opgeslagen sets permanent verwijderd."
+                ))
+            }
         }
     }
 
@@ -6655,8 +6688,11 @@ struct CalendarDayCell: View {
 }
 
 struct SessionDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
     let session: WorkoutSession
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var allSessions: [WorkoutSession]
+    @State private var showDeleteConfirmation = false
 
     private var previousComparable: WorkoutSession? {
         let earlier = allSessions.filter {
@@ -6850,6 +6886,33 @@ struct SessionDetailView: View {
         .background(RFTheme.bg)
         .navigationTitle(session.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .accessibilityLabel(L10n.text("Delete workout", "Training verwijderen"))
+            }
+        }
+        .confirmationDialog(
+            L10n.text("Delete workout history?", "Trainingsgeschiedenis verwijderen?"),
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(L10n.text("Delete workout", "Training verwijderen"), role: .destructive) {
+                context.delete(session)
+                try? context.save()
+                dismiss()
+            }
+            Button(L10n.text("Cancel", "Annuleren"), role: .cancel) {}
+        } message: {
+            Text(L10n.text(
+                "This permanently removes this workout and all of its logged sets.",
+                "Hiermee worden deze training en alle opgeslagen sets permanent verwijderd."
+            ))
+        }
     }
 }
 
@@ -9133,8 +9196,8 @@ struct SettingsView: View {
     @State private var strongImportMessage: String?
 
     private var appVersionDisplay: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.7"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "16"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.8"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "17"
         return "\(version) (\(build))"
     }
 
@@ -9419,8 +9482,8 @@ struct SettingsView: View {
                     )
                     Label(
                         L10n.text(
-                            "0.2.7 moves persistent RepForge user data into SwiftData with automatic migration.",
-                            "0.2.7 verplaatst blijvende RepForge-gebruikersdata naar SwiftData met automatische migratie."
+                            "0.2.8 adds safe deletion of individual workout-history entries.",
+                            "0.2.8 voegt veilig verwijderen van afzonderlijke trainingsgeschiedenis toe."
                         ),
                         systemImage: "sparkles"
                     )
