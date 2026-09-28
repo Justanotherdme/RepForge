@@ -5232,7 +5232,7 @@ struct WorkoutExerciseBlock: View {
                     .frame(width: 64)
 
                 Image(systemName: "checkmark")
-                    .frame(width: 34)
+                    .frame(width: 42)
             }
             .font(.system(size: 10, weight: .bold))
             .foregroundStyle(RFTheme.muted)
@@ -5836,7 +5836,9 @@ struct WorkoutSetRow: View {
             }
 
             rowContent
-                .background(RFTheme.surface)
+                // Keep the swipe hit target without painting a visible full-row
+                // background behind the REPS/completion cells on wider phones.
+                .background(RFTheme.surface.opacity(0.001))
                 .offset(x: dragOffset)
                 .contentShape(Rectangle())
                 .simultaneousGesture(
@@ -5973,8 +5975,19 @@ struct WorkoutSetRow: View {
                 Image(systemName: set.completed ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
                     .foregroundStyle(set.completed ? RFTheme.success : RFTheme.muted)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(width: 34)
+            .buttonStyle(.plain)
+            .frame(width: 42, height: 42)
+            .background(set.completed ? RFTheme.success.opacity(0.11) : RFTheme.field)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(
+                        set.completed ? RFTheme.success.opacity(0.25) : Color.clear,
+                        lineWidth: 1
+                    )
+            )
         }
         .frame(height: 44)
     }
