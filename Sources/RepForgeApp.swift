@@ -746,7 +746,146 @@ enum MuscleMap {
             }
 
         case "Triceps":
-            add("Triceps", 1enum ExerciseCatalog {
+            add("Triceps", 1, .back)
+            if exercise.movement == "press" { add("Mid Chest", 0.35, .front) }
+
+        case "Forearms":
+            add("Forearms", 1, .front)
+            add("Brachialis", 0.45, .front)
+
+        case "Quadriceps":
+            add("Quadriceps", 1, .front)
+            if name.contains("squat") || name.contains("lunge") || name.contains("press") || name.contains("step") {
+                add("Glutes", 0.45, .back)
+            }
+            if name.contains("lunge") || name.contains("split") {
+                add("Adductors", 0.25, .front)
+            }
+
+        case "Hamstrings":
+            add("Hamstrings", 1, .back)
+            if exercise.movement == "hinge" {
+                add("Glutes", 0.65, .back)
+                add("Spinal Erectors", 0.35, .back)
+            }
+
+        case "Glutes":
+            add("Glutes", 1, .back)
+            if name.contains("thrust") || name.contains("bridge") { add("Hamstrings", 0.3, .back) }
+
+        case "Adductors":
+            add("Adductors", 1, .front)
+
+        case "Calves":
+            add("Calves", 1, .back)
+
+        case "Core":
+            if name.contains("side") || name.contains("russian") || name.contains("bicycle") {
+                add("Obliques", 1, .front)
+                add("Abs", 0.6, .front)
+            } else if name.contains("leg raise") || name.contains("captain") {
+                add("Abs", 1, .front)
+                add("Hip Flexors", 0.55, .front)
+            } else {
+                add("Abs", 1, .front)
+            }
+
+        case "Full Body":
+            if name.contains("deadlift") || name.contains("swing") {
+                add("Glutes", 1, .back)
+                add("Hamstrings", 0.8, .back)
+                add("Spinal Erectors", 0.6, .back)
+                add("Traps", 0.35, .back)
+            } else {
+                add("Quadriceps", 0.7, .front)
+                add("Glutes", 0.7, .back)
+                add("Front Delts", 0.55, .front)
+                add("Triceps", 0.4, .back)
+            }
+
+        default:
+            if exercise.movement == "cardio" {
+                add("Quadriceps", 0.35, .front)
+                add("Glutes", 0.25, .back)
+                add("Calves", 0.25, .back)
+            }
+        }
+
+        return result
+    }
+
+    private static func sourceMuscle(
+        _ raw: String,
+        exerciseName: String
+    ) -> (muscle: String, side: MuscleContribution.BodySide)? {
+        let value = raw
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch value {
+        case "pectorals", "pectoralis major", "chest":
+            if exerciseName.contains("incline") { return ("Upper Chest", .front) }
+            if exerciseName.contains("decline") || exerciseName.contains("dip") { return ("Lower Chest", .front) }
+            return ("Mid Chest", .front)
+        case "upper pectorals", "upper chest":
+            return ("Upper Chest", .front)
+        case "anterior deltoid", "anterior deltoids":
+            return ("Front Delts", .front)
+        case "posterior deltoid", "posterior deltoids", "rear deltoids":
+            return ("Rear Delts", .back)
+        case "deltoids", "delts", "shoulders":
+            if exerciseName.contains("rear") || exerciseName.contains("reverse") { return ("Rear Delts", .back) }
+            if exerciseName.contains("front") { return ("Front Delts", .front) }
+            return ("Side Delts", .front)
+        case "lats", "latissimus dorsi":
+            return ("Lats", .back)
+        case "middle back", "upper back", "rhomboids", "rhoboids", "teres major":
+            return ("Upper Back", .back)
+        case "traps", "trapezius", "upper trapezius", "middle trapezius", "lower trapezius":
+            return ("Traps", .back)
+        case "erector spinae", "erectors", "spinal erectors", "lower back", "spine", "thoracic spine", "quadratus lumborum":
+            return ("Spinal Erectors", .back)
+        case "biceps", "biceps brachii":
+            return ("Biceps", .front)
+        case "brachialis", "brachioradialis":
+            return ("Brachialis", .front)
+        case "triceps", "triceps brachii", "anconeus":
+            return ("Triceps", .back)
+        case "forearms", "forearm extensors", "flexor carpi radialis", "flexor carpi ulnaris":
+            return ("Forearms", .front)
+        case "quadriceps", "quads", "rectus femoris", "vastus medialis":
+            return ("Quadriceps", .front)
+        case "hamstrings":
+            return ("Hamstrings", .back)
+        case "glutes", "gluteus maximus", "gluteus medius", "gluteus minimus", "piriformis":
+            return ("Glutes", .back)
+        case "adductors", "groin":
+            return ("Adductors", .front)
+        case "abductors", "hip abductors", "tensor fasciae latae":
+            return ("Abductors", .front)
+        case "calves", "gastrocnemius", "soleus", "achilles tendon", "ankle stabilizers", "ankles":
+            return ("Calves", .back)
+        case "peroneals", "tibialis anterior", "tibialis posterior":
+            return ("Shins", .front)
+        case "abdominals", "abs", "rectus abdominis", "lower abdominals", "lower abs", "transverse abdominis", "core", "core stabilizers":
+            return ("Abs", .front)
+        case "obliques", "intercostals", "serratus anterior":
+            return ("Obliques", .front)
+        case "hip flexors", "iliopsoas":
+            return ("Hip Flexors", .front)
+        case "neck flexors", "sternocleidomastoid", "scalenes":
+            return ("Neck", .front)
+        case "rotator cuff", "infraspinatus":
+            return ("Rear Delts", .back)
+        default:
+            return nil
+        }
+    }
+}
+
+enum ExerciseCatalog {
     // Kept only for resolving existing ex-N history/templates from older RepForge builds.
     // New pickers use the complete bundled Free Exercise DB catalog below.
     private static let legacyBuiltIn: [ExerciseDefinition] = {
@@ -971,36 +1110,21 @@ Smith Machine Leg Press|Quadriceps|Machine|squat
         let bodyPart = normalized(item.bodyPart)
 
         switch target {
-        case "pectorals", "upper pectorals":
-            return "Chest"
-        case "deltoids", "delts", "anterior deltoid", "posterior deltoid", "rear deltoids":
-            return "Shoulders"
-        case "biceps":
-            return "Biceps"
-        case "triceps":
-            return "Triceps"
-        case "forearms", "forearm extensors":
-            return "Forearms"
-        case "quadriceps", "quads":
-            return "Quadriceps"
-        case "hamstrings":
-            return "Hamstrings"
-        case "glutes", "gluteus medius", "abductors":
-            return "Glutes"
-        case "adductors":
-            return "Adductors"
-        case "calves", "peroneals":
-            return "Calves"
-        case "abdominals", "abs", "rectus abdominis", "obliques", "hip flexors":
-            return "Core"
-        case "lats", "middle back", "upper back", "rhomboids", "traps", "erector spinae", "erectors", "spinal erectors", "spine", "thoracic spine":
-            return "Back"
-        case "neck flexors", "sternocleidomastoid":
-            return "Neck"
-        case "cardiovascular system":
-            return "Cardio"
-        case "full body":
-            return "Full Body"
+        case "pectorals", "upper pectorals": return "Chest"
+        case "deltoids", "delts", "anterior deltoid", "posterior deltoid", "rear deltoids": return "Shoulders"
+        case "biceps": return "Biceps"
+        case "triceps": return "Triceps"
+        case "forearms", "forearm extensors": return "Forearms"
+        case "quadriceps", "quads": return "Quadriceps"
+        case "hamstrings": return "Hamstrings"
+        case "glutes", "gluteus medius", "abductors": return "Glutes"
+        case "adductors": return "Adductors"
+        case "calves", "peroneals": return "Calves"
+        case "abdominals", "abs", "rectus abdominis", "obliques", "hip flexors": return "Core"
+        case "lats", "middle back", "upper back", "rhomboids", "traps", "erector spinae", "erectors", "spinal erectors", "spine", "thoracic spine": return "Back"
+        case "neck flexors", "sternocleidomastoid": return "Neck"
+        case "cardiovascular system": return "Cardio"
+        case "full body": return "Full Body"
         default:
             switch bodyPart {
             case "chest": return "Chest"
@@ -1025,7 +1149,6 @@ Smith Machine Leg Press|Quadriceps|Machine|squat
 
         if bodyPart == "cardio" || target == "cardiovascular system" { return "cardio" }
         if ["abdominals", "abs", "rectus abdominis", "obliques", "hip flexors"].contains(target) { return "core" }
-
         if name.contains("curl") { return "curl" }
         if name.contains("pushdown") || name.contains("extension") || name.contains("kickback") { return "extension" }
         if name.contains("raise") || name.contains("fly") || name.contains("abduction") || name.contains("adduction") { return "raise" }
@@ -1033,13 +1156,11 @@ Smith Machine Leg Press|Quadriceps|Machine|squat
         if name.contains("deadlift") || name.contains("hip thrust") || name.contains("bridge") || name.contains("swing") || name.contains("hyperextension") || name.contains("back extension") || name.contains("good morning") { return "hinge" }
         if name.contains("row") || name.contains("pulldown") || name.contains("pull up") || name.contains("pull-up") || name.contains("chin up") || name.contains("chin-up") || name.contains("pullover") { return "pull" }
         if name.contains("press") || name.contains("push up") || name.contains("push-up") || name.contains("dip") { return "press" }
-
         if ["biceps", "lats", "middle back", "upper back", "rhomboids"].contains(target) { return "pull" }
         if ["pectorals", "upper pectorals", "deltoids", "delts", "anterior deltoid", "triceps"].contains(target) { return "press" }
         if ["quadriceps", "quads"].contains(target) { return "squat" }
         if ["hamstrings", "glutes", "erector spinae", "erectors", "spinal erectors"].contains(target) { return "hinge" }
         if ["calves", "peroneals"].contains(target) { return "raise" }
-
         return "other"
     }
 
@@ -1069,154 +1190,6 @@ Smith Machine Leg Press|Quadriceps|Machine|squat
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
             .lowercased()
             .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
-ell|press
-Arnold Press (Dumbbell)|Shoulders|Dumbbell|press
-Shoulder Press (Machine)|Shoulders|Machine|press
-Lateral Raise (Dumbbell)|Shoulders|Dumbbell|raise
-Lateral Raise (Cable)|Shoulders|Cable|raise
-Front Raise|Shoulders|Dumbbell|raise
-Rear Delt Fly|Shoulders|Dumbbell|raise
-Reverse Pec Deck|Shoulders|Machine|raise
-Face Pull|Shoulders|Cable|pull
-Upright Row|Shoulders|Barbell|pull
-Shrug (Barbell)|Shoulders|Barbell|pull
-Shrug (Dumbbell)|Shoulders|Dumbbell|pull
-Biceps Curl (Barbell)|Biceps|Barbell|curl
-Biceps Curl (Dumbbell)|Biceps|Dumbbell|curl
-Hammer Curl|Biceps|Dumbbell|curl
-Incline Dumbbell Curl|Biceps|Dumbbell|curl
-Preacher Curl|Biceps|Machine|curl
-Cable Curl|Biceps|Cable|curl
-Concentration Curl|Biceps|Dumbbell|curl
-EZ-Bar Curl|Biceps|Barbell|curl
-Triceps Pushdown|Triceps|Cable|extension
-Overhead Triceps Extension|Triceps|Cable|extension
-Skull Crusher|Triceps|Barbell|extension
-Close Grip Bench Press|Triceps|Barbell|press
-Triceps Dip|Triceps|Bodyweight|extension
-Triceps Extension (Dumbbell)|Triceps|Dumbbell|extension
-Squat (Barbell)|Quadriceps|Barbell|squat
-Front Squat|Quadriceps|Barbell|squat
-Goblet Squat|Quadriceps|Dumbbell|squat
-Hack Squat|Quadriceps|Machine|squat
-Leg Press|Quadriceps|Machine|squat
-Leg Extension (Machine)|Quadriceps|Machine|extension
-Bulgarian Split Squat|Quadriceps|Dumbbell|squat
-Walking Lunge|Quadriceps|Dumbbell|squat
-Reverse Lunge|Quadriceps|Dumbbell|squat
-Step Up|Quadriceps|Dumbbell|squat
-Leg Curl (Lying)|Hamstrings|Machine|curl
-Leg Curl (Seated)|Hamstrings|Machine|curl
-Nordic Hamstring Curl|Hamstrings|Bodyweight|curl
-Stiff Leg Deadlift|Hamstrings|Barbell|hinge
-Hip Thrust (Barbell)|Glutes|Barbell|hinge
-Glute Bridge|Glutes|Bodyweight|hinge
-Cable Kickback|Glutes|Cable|extension
-Hip Abduction (Machine)|Glutes|Machine|raise
-Hip Adduction (Machine)|Adductors|Machine|raise
-Standing Calf Raise|Calves|Machine|raise
-Seated Calf Raise|Calves|Machine|raise
-Standing Calf Raise (Dumbbell)|Calves|Dumbbell|raise
-Crunch|Core|Bodyweight|core
-Cable Crunch|Core|Cable|core
-Hanging Leg Raise|Core|Bodyweight|core
-Flat Leg Raise|Core|Bodyweight|core
-Plank|Core|Bodyweight|core
-Side Plank|Core|Bodyweight|core
-Ab Wheel|Core|Other|core
-Russian Twist|Core|Bodyweight|core
-Bicycle Crunch|Core|Bodyweight|core
-Mountain Climber|Core|Bodyweight|core
-Farmer Carry|Full Body|Dumbbell|carry
-Kettlebell Swing|Full Body|Kettlebell|hinge
-Clean and Press|Full Body|Barbell|press
-Thruster|Full Body|Barbell|squat
-Battle Ropes|Full Body|Other|cardio
-Ball Slams|Full Body|Other|cardio
-Burpee|Full Body|Bodyweight|cardio
-Aerobics|Cardio|Cardio|cardio
-Running|Cardio|Cardio|cardio
-Cycling|Cardio|Cardio|cardio
-Rowing|Cardio|Cardio|cardio
-Stair Climber|Cardio|Cardio|cardio
-Elliptical|Cardio|Cardio|cardio
-Jump Rope|Cardio|Other|cardio
-Barbell Flat Bench Press|Chest|Barbell|press
-Chest Supported Machine Row|Back|Machine|pull
-Lying Leg Curl|Hamstrings|Machine|curl
-Cable Triceps Rope Pushdown|Triceps|Cable|extension
-Dumbbell Shoulder Press (Seated)|Shoulders|Dumbbell|press
-Dumbbell Romanian Deadlift|Hamstrings|Dumbbell|hinge
-Wide Grip Lat Pulldown|Back|Cable|pull
-Standing Dumbbell Biceps Curl|Biceps|Dumbbell|curl
-Cable Face Pull|Shoulders|Cable|pull
-Seated Cable Row (V-Bar)|Back|Cable|pull
-Incline Dumbbell Bench Press|Chest|Dumbbell|press
-Standing Dumbbell Lateral Raise|Shoulders|Dumbbell|raise
-Cable Overhead Triceps Rope Extension|Triceps|Cable|extension
-Reverse Pec Deck Machine|Shoulders|Machine|raise
-Captain's Chair Leg Raise|Core|Bodyweight|core
-Hack Squat Machine|Quadriceps|Machine|squat
-Single-Arm Dumbbell Row|Back|Dumbbell|pull
-Seated Leg Curl Machine|Hamstrings|Machine|curl
-Cable Triceps Straight Bar Pushdown|Triceps|Cable|extension
-Standing Barbell Overhead Press (Military Press)|Shoulders|Barbell|press
-Trap Bar Deadlift|Full Body|Trap Bar|hinge
-Neutral Grip Lat Pulldown|Back|Cable|pull
-Dumbbell Walking Lunges|Quadriceps|Dumbbell|squat
-Cable Biceps Curl|Biceps|Cable|curl
-Chest Supported Dumbbell Row|Back|Dumbbell|pull
-Assisted Dip Machine|Chest|Machine|press
-Bench Dips|Triceps|Bodyweight|extension
-Seated Calf Raise Machine|Calves|Machine|raise
-Lean-Away Cable Lateral Raise|Shoulders|Cable|raise
-EZ-Bar Biceps Curl|Biceps|EZ-Bar|curl
-Kneeling Cable Crunch|Core|Cable|core
-Abdominal Crunch Machine|Core|Machine|core
-EZ-Bar Reverse Curl|Forearms|EZ-Bar|curl
-Arnold Dumbbell Press|Shoulders|Dumbbell|press
-Flat Dumbbell Bench Press|Chest|Dumbbell|press
-Close-Grip Barbell Bench Press|Triceps|Barbell|press
-Dumbbell Preacher Curl|Biceps|Dumbbell|curl
-Incline Bench Spider Curl|Biceps|Dumbbell|curl
-Lying Dumbbell Skull Crushers|Triceps|Dumbbell|extension
-Lying Floor Leg Raises|Core|Bodyweight|core
-Bench Press (Smith Machine)|Chest|Machine|press
-Close Feet Leg Press|Quadriceps|Machine|squat
-Lever Horizontal Leg Press|Quadriceps|Machine|squat
-Sled 45 Degree Wide Leg Press|Quadriceps|Machine|squat
-Smith Machine Leg Press|Quadriceps|Machine|squat
-"""
-        return rows.split(separator: "\n").enumerated().compactMap { index, raw in
-            let p = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
-            guard p.count == 4 else { return nil }
-            return ExerciseDefinition(
-                id: "ex-\(index)",
-                name: p[0],
-                muscle: p[1],
-                equipment: p[2],
-                movement: p[3]
-            )
-        }
-    }()
-
-    static var all: [ExerciseDefinition] {
-        builtIn + CustomExerciseStore.load().map { $0.definition }
-    }
-
-    static func find(_ id: String) -> ExerciseDefinition? {
-        all.first { $0.id == id }
-    }
-
-    static func findByName(_ name: String) -> ExerciseDefinition? {
-        all.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
-    }
-
-    static var muscles: [String] {
-        Array(Set(all.map(\.muscle))).sorted()
     }
 }
 
@@ -8508,15 +8481,7 @@ struct BodyMuscleFigure: View {
         let height: CGFloat
         let rotation: Double
 
-        init(
-            _ id: String,
-            _ muscle: String,
-            _ x: CGFloat,
-            _ y: CGFloat,
-            _ width: CGFloat,
-            _ height: CGFloat,
-            _ rotation: Double = 0
-        ) {
+        init(_ id: String, _ muscle: String, _ x: CGFloat, _ y: CGFloat, _ width: CGFloat, _ height: CGFloat, _ rotation: Double = 0) {
             self.id = id
             self.muscle = muscle
             self.x = x
@@ -8624,15 +8589,9 @@ struct BodyMuscleFigure: View {
                     if let value = intensity[zone.muscle], value > 0 {
                         Capsule()
                             .fill(RFTheme.accent.opacity(0.22 + (0.78 * value)))
-                            .frame(
-                                width: max(5, w * zone.width),
-                                height: max(5, h * zone.height)
-                            )
+                            .frame(width: max(5, w * zone.width), height: max(5, h * zone.height))
                             .rotationEffect(.degrees(zone.rotation))
-                            .overlay(
-                                Capsule()
-                                    .stroke(Color.white.opacity(0.30), lineWidth: 0.8)
-                            )
+                            .overlay(Capsule().stroke(Color.white.opacity(0.30), lineWidth: 0.8))
                             .position(x: w * zone.x, y: h * zone.y)
                     }
                 }
