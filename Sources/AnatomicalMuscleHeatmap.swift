@@ -263,7 +263,7 @@ struct BodyMuscleFigure: View {
             Text(side == .front ? L10n.text("FRONT", "VOOR") : L10n.text("BACK", "ACHTER"))
                 .font(.caption2.weight(.bold))
                 .tracking(1.2)
-                .foregroundStyle(Color.white.opacity(0.55))
+                .foregroundStyle(RFTheme.muted)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
@@ -367,6 +367,6 @@ struct MuscleHeatLegend: View {
             Text(L10n.text("High", "Hoog"))
         }
         .font(.caption2.weight(.semibold))
-        .foregroundStyle(Color.white.opacity(0.55))
+        .foregroundStyle(RFTheme.muted)
     }
 }
