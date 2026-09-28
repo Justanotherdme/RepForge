@@ -29,7 +29,10 @@ struct RepForgeRestTimerLiveActivity: Widget {
                     Text(context.state.exerciseName.isEmpty ? context.attributes.workoutTitle : context.state.exerciseName)
                         .font(.headline)
                         .lineLimit(1)
-                    Text(timerInterval: Date()...context.state.endDate, countsDown: true)
+                    Text(
+                            timerInterval: context.state.endDate.addingTimeInterval(-TimeInterval(context.state.totalSeconds))...context.state.endDate,
+                            countsDown: true
+                        )
                         .font(.title2.monospacedDigit().bold())
                         .foregroundStyle(.blue)
                 }
@@ -51,7 +54,10 @@ struct RepForgeRestTimerLiveActivity: Widget {
                 }
 
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(timerInterval: Date()...context.state.endDate, countsDown: true)
+                    Text(
+                            timerInterval: context.state.endDate.addingTimeInterval(-TimeInterval(context.state.totalSeconds))...context.state.endDate,
+                            countsDown: true
+                        )
                         .font(.headline.monospacedDigit().bold())
                         .foregroundStyle(.blue)
                 }
@@ -76,7 +82,10 @@ struct RepForgeRestTimerLiveActivity: Widget {
                 Image(systemName: "timer")
                     .foregroundStyle(.blue)
             } compactTrailing: {
-                Text(timerInterval: Date()...context.state.endDate, countsDown: true)
+                Text(
+                            timerInterval: context.state.endDate.addingTimeInterval(-TimeInterval(context.state.totalSeconds))...context.state.endDate,
+                            countsDown: true
+                        )
                     .font(.caption2.monospacedDigit().bold())
                     .foregroundStyle(.blue)
             } minimal: {

@@ -2445,7 +2445,11 @@ struct RootView: View {
             PersistenceMaintenance.cleanupOrphanExerciseLogs(context: context)
         }
         .onOpenURL { url in
-            importShareLink(url)
+            if url.scheme == "repforge", url.host == "workout" {
+                tab = 2
+            } else {
+                importShareLink(url)
+            }
         }
         .alert(
             L10n.text("RepForge Import", "RepForge Import"),
@@ -2608,7 +2612,7 @@ struct StartWorkoutView: View {
 
                             Spacer()
 
-                            Text("0.2.4")
+                            Text("0.2.5")
                                 .font(.caption.bold())
                                 .foregroundStyle(RFTheme.accent)
                                 .padding(.horizontal, 10)
@@ -3973,6 +3977,7 @@ struct ActiveWorkoutView: View {
 
                 if remaining == 0 {
                     restEndDate = nil
+                    RestTimerLiveActivityManager.end()
                     Haptics.success()
                 }
             }
@@ -4225,8 +4230,15 @@ struct ActiveWorkoutView: View {
         restOriginal = seconds
         restCollapsed = false
         restExerciseName = exerciseName
-        restEndDate = Date().addingTimeInterval(TimeInterval(seconds))
+        let endDate = Date().addingTimeInterval(TimeInterval(seconds))
+        restEndDate = endDate
         RestNotificationManager.shared.schedule(seconds: seconds, exerciseName: exerciseName)
+        RestTimerLiveActivityManager.startOrUpdate(
+            workoutTitle: session.title,
+            exerciseName: exerciseName,
+            endDate: endDate,
+            totalSeconds: seconds
+        )
     }
 
     private func adjustRest(by seconds: Int) {
@@ -4236,6 +4248,16 @@ struct ActiveWorkoutView: View {
         restRemaining = max(0, Int(ceil(newEnd.timeIntervalSinceNow)))
         restOriginal = max(restOriginal, restRemaining)
         RestNotificationManager.shared.schedule(seconds: restRemaining, exerciseName: restExerciseName)
+        if restRemaining > 0 {
+            RestTimerLiveActivityManager.startOrUpdate(
+                workoutTitle: session.title,
+                exerciseName: restExerciseName,
+                endDate: newEnd,
+                totalSeconds: max(restOriginal, restRemaining)
+            )
+        } else {
+            RestTimerLiveActivityManager.end()
+        }
         Haptics.light()
     }
 
@@ -4243,8 +4265,15 @@ struct ActiveWorkoutView: View {
         guard defaultRestSeconds > 0 else { return }
         restOriginal = defaultRestSeconds
         restRemaining = defaultRestSeconds
-        restEndDate = Date().addingTimeInterval(TimeInterval(defaultRestSeconds))
+        let endDate = Date().addingTimeInterval(TimeInterval(defaultRestSeconds))
+        restEndDate = endDate
         RestNotificationManager.shared.schedule(seconds: defaultRestSeconds, exerciseName: restExerciseName)
+        RestTimerLiveActivityManager.startOrUpdate(
+            workoutTitle: session.title,
+            exerciseName: restExerciseName,
+            endDate: endDate,
+            totalSeconds: defaultRestSeconds
+        )
         Haptics.light()
     }
 
@@ -4254,6 +4283,7 @@ struct ActiveWorkoutView: View {
         restEndDate = nil
         restExerciseName = ""
         RestNotificationManager.shared.cancel()
+        RestTimerLiveActivityManager.end()
         Haptics.light()
     }
 
@@ -9100,8 +9130,8 @@ struct SettingsView: View {
     @State private var backupMessage: String?
 
     private var appVersionDisplay: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.4"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "7"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.5"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "8"
         return "\(version) (\(build))"
     }
 

@@ -6,14 +6,18 @@ options:
 settings:
   base:
     SWIFT_VERSION: 5.0
-    CURRENT_PROJECT_VERSION: 7
-    MARKETING_VERSION: 0.2.4
+    CURRENT_PROJECT_VERSION: 8
+    MARKETING_VERSION: 0.2.5
 targets:
   RepForge:
     type: application
     platform: iOS
     sources:
       - path: Sources
+      - path: Shared
+    dependencies:
+      - target: RepForgeLiveActivity
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.xflipperkast.repforge
@@ -21,4 +25,20 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_MACCATALYST: NO
+
+  RepForgeLiveActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: RepForgeLiveActivity
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.xflipperkast.repforge.liveactivity
+        INFOPLIST_FILE: RepForgeLiveActivity/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
         SUPPORTS_MACCATALYST: NO
