@@ -5713,19 +5713,44 @@ struct WorkoutSummaryView: View {
         }
     }
 
-    private var progressionSuggestions: [(String, Double)] {
-        session.exercises.compactMap { log in
-            guard let target = log.targetReps,
-                  let upper = highestRepTarget(target) else { return nil }
+    private var progressionSuggestions: [(name: String, current: Double, next: Double, reason: String)] {
+        guard AppPreferences.progressionRule != "off" else { return [] }
+
+        return session.exercises.compactMap { log in
+            guard ExerciseCatalog.find(log.exerciseID)?.movement != "cardio" else { return nil }
 
             let workingSets = log.sets.filter { $0.countsForPR && $0.setType == "working" }
             guard !workingSets.isEmpty,
-                  workingSets.allSatisfy({ $0.reps >= upper }),
                   let current = workingSets.map(\.weightKg).max(),
                   current > 0 else { return nil }
 
             let name = ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise"
-            return (name, current + AppPreferences.progressionStepKg)
+            let next = current + AppPreferences.progressionStepKg
+
+            if AppPreferences.progressionRule == "fixed" {
+                guard workingSets.allSatisfy({ $0.reps > 0 }) else { return nil }
+                let completedText = workingSets
+                    .map { "\($0.reps)" }
+                    .joined(separator: "/")
+                let reason = L10n.text(
+                    "Fixed increment: completed working-set reps \(completedText) at \(AppPreferences.displayWeight(current).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel).",
+                    "Vaste verhoging: werkset-herhalingen \(completedText) voltooid op \(AppPreferences.displayWeight(current).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)."
+                )
+                return (name, current, next, reason)
+            }
+
+            guard let target = log.targetReps,
+                  let upper = highestRepTarget(target),
+                  workingSets.allSatisfy({ $0.reps >= upper }) else { return nil }
+
+            let repsText = workingSets
+                .map { "\($0.reps)" }
+                .joined(separator: "/")
+            let reason = L10n.text(
+                "Target was \(target). You reached the top of the range on every working set (\(repsText)) at \(AppPreferences.displayWeight(current).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel).",
+                "Doel was \(target). Je haalde de bovenkant van de range op elke werkset (\(repsText)) met \(AppPreferences.displayWeight(current).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)."
+            )
+            return (name, current, next, reason)
         }
     }
 
@@ -5835,30 +5860,42 @@ struct WorkoutSummaryView: View {
                                 .font(.title3.bold())
 
                             ForEach(Array(progressionSuggestions.enumerated()), id: \.offset) { _, suggestion in
-                                HStack {
-                                    Image(systemName: "arrow.up.right.circle.fill")
-                                        .foregroundStyle(RFTheme.success)
-                                    VStack(alignment: .leading) {
-                                        Text(suggestion.0).bold()
-                                        Text(
-                                            "\(L10n.text("Consider", "Overweeg")) \(AppPreferences.displayWeight(suggestion.1).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)"
-                                        )
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Image(systemName: "arrow.up.right.circle.fill")
+                                            .foregroundStyle(RFTheme.success)
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(suggestion.name).bold()
+                                            Text(
+                                                "\(AppPreferences.displayWeight(suggestion.current).formatted(.number.precision(.fractionLength(0...2)))) → \(AppPreferences.displayWeight(suggestion.next).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)"
+                                            )
+                                            .font(.headline)
+                                            .foregroundStyle(RFTheme.success)
+                                        }
+
+                                        Spacer()
+                                    }
+
+                                    Text(suggestion.reason)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
+
+                                    Label(
+                                        L10n.text("Suggestion only — you stay in control.", "Alleen een suggestie — jij beslist."),
+                                        systemImage: "info.circle"
+                                    )
+                                    .font(.caption2)
+                                    .foregroundStyle(RFTheme.muted)
                                 }
                                 .padding(12)
                                 .background(RFTheme.surface)
                                 .clipShape(RoundedRectangle(cornerRadius: 14))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .stroke(RFTheme.cardBorder)
+                                )
                             }
-
-                            Text(L10n.text(
-                                "Suggestions are based on hitting the top of the programmed rep range for all working sets.",
-                                "Suggesties zijn gebaseerd op het behalen van de bovenkant van de herhalingsrange voor alle werksets."
-                            ))
-                            .font(.caption)
-                            .foregroundStyle(RFTheme.muted)
                         }
                     }
 
