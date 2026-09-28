@@ -29,6 +29,18 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             build
+      - name: Validate embedded Live Activity bundle
+        run: |
+          APP="build/Build/Products/Release-iphoneos/RepForge.app"
+          EXT="$APP/PlugIns/RepForgeLiveActivity.appex"
+          test -d "$EXT"
+          MAIN_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
+          EXT_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$EXT/Info.plist")
+          test -n "$MAIN_EXEC"
+          test -n "$EXT_EXEC"
+          test -f "$APP/$MAIN_EXEC"
+          test -f "$EXT/$EXT_EXEC"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$EXT/Info.plist")" = "com.apple.widgetkit-extension"
       - name: Package unsigned IPA
         run: |
           rm -rf Payload
