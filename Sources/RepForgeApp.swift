@@ -547,8 +547,45 @@ struct ExerciseDefinition: Identifiable, Hashable {
     let muscle: String
     let equipment: String
     let movement: String
+    let aliases: [String]
+    let sourceID: String?
+    let sourceTarget: String?
+    let sourceSecondaryMuscles: [String]
+    let sourceBodyPart: String?
+    let sourceSteps: [String]
+    let sourceFormCues: [String]
+
+    init(
+        id: String,
+        name: String,
+        muscle: String,
+        equipment: String,
+        movement: String,
+        aliases: [String] = [],
+        sourceID: String? = nil,
+        sourceTarget: String? = nil,
+        sourceSecondaryMuscles: [String] = [],
+        sourceBodyPart: String? = nil,
+        sourceSteps: [String] = [],
+        sourceFormCues: [String] = []
+    ) {
+        self.id = id
+        self.name = name
+        self.muscle = muscle
+        self.equipment = equipment
+        self.movement = movement
+        self.aliases = aliases
+        self.sourceID = sourceID
+        self.sourceTarget = sourceTarget
+        self.sourceSecondaryMuscles = sourceSecondaryMuscles
+        self.sourceBodyPart = sourceBodyPart
+        self.sourceSteps = sourceSteps
+        self.sourceFormCues = sourceFormCues
+    }
 
     var instructions: [String] {
+        if !sourceSteps.isEmpty { return sourceSteps }
+
         switch movement {
         case "press":
             return ["Set a stable base and brace your trunk.", "Lower under control while keeping the working joints stacked.", "Press smoothly through the intended range without bouncing."]
@@ -561,7 +598,7 @@ struct ExerciseDefinition: Identifiable, Hashable {
         case "curl":
             return ["Keep the upper arm controlled.", "Curl without swinging the torso.", "Lower slowly until the elbow is fully extended."]
         case "extension":
-            return ["Keep the upper arm stable.", "Extend through the elbow without using body momentum.", "Control the return and avoid snapping into lockout."]
+            return ["Keep the working joint stable.", "Extend without using body momentum.", "Control the return and avoid snapping into lockout."]
         case "raise":
             return ["Use a controlled range with relaxed traps.", "Lead with the intended limb path.", "Lower more slowly than you lift."]
         case "core":
@@ -574,7 +611,9 @@ struct ExerciseDefinition: Identifiable, Hashable {
     }
 
     var cues: [String] {
-        ["Controlled tempo", "Stable setup", "Pain-free range", "Progress load gradually"]
+        sourceFormCues.isEmpty
+            ? ["Controlled tempo", "Stable setup", "Pain-free range", "Progress load gradually"]
+            : sourceFormCues
     }
 
     var detailedMuscles: [MuscleContribution] {
@@ -599,8 +638,8 @@ enum MuscleMap {
         "Front Delts", "Side Delts", "Rear Delts",
         "Lats", "Upper Back", "Traps", "Spinal Erectors",
         "Biceps", "Brachialis", "Triceps", "Forearms",
-        "Quadriceps", "Hamstrings", "Glutes", "Adductors",
-        "Calves", "Abs", "Obliques", "Hip Flexors"
+        "Quadriceps", "Hamstrings", "Glutes", "Adductors", "Abductors",
+        "Calves", "Shins", "Abs", "Obliques", "Hip Flexors", "Neck"
     ]
 
     static func contributions(for exercise: ExerciseDefinition) -> [MuscleContribution] {
@@ -610,10 +649,41 @@ enum MuscleMap {
         func add(_ muscle: String, _ weight: Double = 1, _ side: MuscleContribution.BodySide) {
             if let index = result.firstIndex(where: { $0.muscle == muscle }) {
                 let existing = result[index]
-                result[index] = MuscleContribution(muscle: muscle, weight: max(existing.weight, weight), side: existing.side)
+                result[index] = MuscleContribution(
+                    muscle: muscle,
+                    weight: max(existing.weight, weight),
+                    side: existing.side
+                )
             } else {
                 result.append(MuscleContribution(muscle: muscle, weight: weight, side: side))
             }
+        }
+
+        if let sourceTarget = exercise.sourceTarget {
+            if let mapped = sourceMuscle(sourceTarget, exerciseName: name) {
+                add(mapped.muscle, 1.0, mapped.side)
+            }
+
+            for secondary in exercise.sourceSecondaryMuscles {
+                if let mapped = sourceMuscle(secondary, exerciseName: name) {
+                    add(mapped.muscle, 0.38, mapped.side)
+                }
+            }
+
+            if result.isEmpty {
+                if exercise.movement == "cardio" {
+                    add("Quadriceps", 0.35, .front)
+                    add("Glutes", 0.25, .back)
+                    add("Calves", 0.25, .back)
+                } else if exercise.muscle == "Full Body" {
+                    add("Quadriceps", 0.55, .front)
+                    add("Glutes", 0.55, .back)
+                    add("Upper Back", 0.35, .back)
+                    add("Abs", 0.35, .front)
+                }
+            }
+
+            return result
         }
 
         switch exercise.muscle {
@@ -676,77 +746,10 @@ enum MuscleMap {
             }
 
         case "Triceps":
-            add("Triceps", 1, .back)
-            if exercise.movement == "press" { add("Mid Chest", 0.35, .front) }
-
-        case "Forearms":
-            add("Forearms", 1, .front)
-            add("Brachialis", 0.45, .front)
-
-        case "Quadriceps":
-            add("Quadriceps", 1, .front)
-            if name.contains("squat") || name.contains("lunge") || name.contains("press") || name.contains("step") {
-                add("Glutes", 0.45, .back)
-            }
-            if name.contains("lunge") || name.contains("split") {
-                add("Adductors", 0.25, .front)
-            }
-
-        case "Hamstrings":
-            add("Hamstrings", 1, .back)
-            if exercise.movement == "hinge" {
-                add("Glutes", 0.65, .back)
-                add("Spinal Erectors", 0.35, .back)
-            }
-
-        case "Glutes":
-            add("Glutes", 1, .back)
-            if name.contains("thrust") || name.contains("bridge") { add("Hamstrings", 0.3, .back) }
-
-        case "Adductors":
-            add("Adductors", 1, .front)
-
-        case "Calves":
-            add("Calves", 1, .back)
-
-        case "Core":
-            if name.contains("side") || name.contains("russian") || name.contains("bicycle") {
-                add("Obliques", 1, .front)
-                add("Abs", 0.6, .front)
-            } else if name.contains("leg raise") || name.contains("captain") {
-                add("Abs", 1, .front)
-                add("Hip Flexors", 0.55, .front)
-            } else {
-                add("Abs", 1, .front)
-            }
-
-        case "Full Body":
-            if name.contains("deadlift") || name.contains("swing") {
-                add("Glutes", 1, .back)
-                add("Hamstrings", 0.8, .back)
-                add("Spinal Erectors", 0.6, .back)
-                add("Traps", 0.35, .back)
-            } else {
-                add("Quadriceps", 0.7, .front)
-                add("Glutes", 0.7, .back)
-                add("Front Delts", 0.55, .front)
-                add("Triceps", 0.4, .back)
-            }
-
-        default:
-            if exercise.movement == "cardio" {
-                add("Quadriceps", 0.35, .front)
-                add("Glutes", 0.25, .back)
-                add("Calves", 0.25, .back)
-            }
-        }
-
-        return result
-    }
-}
-
-enum ExerciseCatalog {
-    private static let builtIn: [ExerciseDefinition] = {
+            add("Triceps", 1enum ExerciseCatalog {
+    // Kept only for resolving existing ex-N history/templates from older RepForge builds.
+    // New pickers use the complete bundled Free Exercise DB catalog below.
+    private static let legacyBuiltIn: [ExerciseDefinition] = {
         let rows = """
 Bench Press (Barbell)|Chest|Barbell|press
 Bench Press (Dumbbell)|Chest|Dumbbell|press
@@ -778,6 +781,298 @@ Back Extension (Machine)|Back|Machine|hinge
 Good Morning|Back|Barbell|hinge
 Overhead Press (Barbell)|Shoulders|Barbell|press
 Shoulder Press (Dumbbell)|Shoulders|Dumbbell|press
+Arnold Press (Dumbbell)|Shoulders|Dumbbell|press
+Shoulder Press (Machine)|Shoulders|Machine|press
+Lateral Raise (Dumbbell)|Shoulders|Dumbbell|raise
+Lateral Raise (Cable)|Shoulders|Cable|raise
+Front Raise|Shoulders|Dumbbell|raise
+Rear Delt Fly|Shoulders|Dumbbell|raise
+Reverse Pec Deck|Shoulders|Machine|raise
+Face Pull|Shoulders|Cable|pull
+Upright Row|Shoulders|Barbell|pull
+Shrug (Barbell)|Shoulders|Barbell|pull
+Shrug (Dumbbell)|Shoulders|Dumbbell|pull
+Biceps Curl (Barbell)|Biceps|Barbell|curl
+Biceps Curl (Dumbbell)|Biceps|Dumbbell|curl
+Hammer Curl|Biceps|Dumbbell|curl
+Incline Dumbbell Curl|Biceps|Dumbbell|curl
+Preacher Curl|Biceps|Machine|curl
+Cable Curl|Biceps|Cable|curl
+Concentration Curl|Biceps|Dumbbell|curl
+EZ-Bar Curl|Biceps|Barbell|curl
+Triceps Pushdown|Triceps|Cable|extension
+Overhead Triceps Extension|Triceps|Cable|extension
+Skull Crusher|Triceps|Barbell|extension
+Close Grip Bench Press|Triceps|Barbell|press
+Triceps Dip|Triceps|Bodyweight|extension
+Triceps Extension (Dumbbell)|Triceps|Dumbbell|extension
+Squat (Barbell)|Quadriceps|Barbell|squat
+Front Squat|Quadriceps|Barbell|squat
+Goblet Squat|Quadriceps|Dumbbell|squat
+Hack Squat|Quadriceps|Machine|squat
+Leg Press|Quadriceps|Machine|squat
+Leg Extension (Machine)|Quadriceps|Machine|extension
+Bulgarian Split Squat|Quadriceps|Dumbbell|squat
+Walking Lunge|Quadriceps|Dumbbell|squat
+Reverse Lunge|Quadriceps|Dumbbell|squat
+Step Up|Quadriceps|Dumbbell|squat
+Leg Curl (Lying)|Hamstrings|Machine|curl
+Leg Curl (Seated)|Hamstrings|Machine|curl
+Nordic Hamstring Curl|Hamstrings|Bodyweight|curl
+Stiff Leg Deadlift|Hamstrings|Barbell|hinge
+Hip Thrust (Barbell)|Glutes|Barbell|hinge
+Glute Bridge|Glutes|Bodyweight|hinge
+Cable Kickback|Glutes|Cable|extension
+Hip Abduction (Machine)|Glutes|Machine|raise
+Hip Adduction (Machine)|Adductors|Machine|raise
+Standing Calf Raise|Calves|Machine|raise
+Seated Calf Raise|Calves|Machine|raise
+Standing Calf Raise (Dumbbell)|Calves|Dumbbell|raise
+Crunch|Core|Bodyweight|core
+Cable Crunch|Core|Cable|core
+Hanging Leg Raise|Core|Bodyweight|core
+Flat Leg Raise|Core|Bodyweight|core
+Plank|Core|Bodyweight|core
+Side Plank|Core|Bodyweight|core
+Ab Wheel|Core|Other|core
+Russian Twist|Core|Bodyweight|core
+Bicycle Crunch|Core|Bodyweight|core
+Mountain Climber|Core|Bodyweight|core
+Farmer Carry|Full Body|Dumbbell|carry
+Kettlebell Swing|Full Body|Kettlebell|hinge
+Clean and Press|Full Body|Barbell|press
+Thruster|Full Body|Barbell|squat
+Battle Ropes|Full Body|Other|cardio
+Ball Slams|Full Body|Other|cardio
+Burpee|Full Body|Bodyweight|cardio
+Aerobics|Cardio|Cardio|cardio
+Running|Cardio|Cardio|cardio
+Cycling|Cardio|Cardio|cardio
+Rowing|Cardio|Cardio|cardio
+Stair Climber|Cardio|Cardio|cardio
+Elliptical|Cardio|Cardio|cardio
+Jump Rope|Cardio|Other|cardio
+Barbell Flat Bench Press|Chest|Barbell|press
+Chest Supported Machine Row|Back|Machine|pull
+Lying Leg Curl|Hamstrings|Machine|curl
+Cable Triceps Rope Pushdown|Triceps|Cable|extension
+Dumbbell Shoulder Press (Seated)|Shoulders|Dumbbell|press
+Dumbbell Romanian Deadlift|Hamstrings|Dumbbell|hinge
+Wide Grip Lat Pulldown|Back|Cable|pull
+Standing Dumbbell Biceps Curl|Biceps|Dumbbell|curl
+Cable Face Pull|Shoulders|Cable|pull
+Seated Cable Row (V-Bar)|Back|Cable|pull
+Incline Dumbbell Bench Press|Chest|Dumbbell|press
+Standing Dumbbell Lateral Raise|Shoulders|Dumbbell|raise
+Cable Overhead Triceps Rope Extension|Triceps|Cable|extension
+Reverse Pec Deck Machine|Shoulders|Machine|raise
+Captain's Chair Leg Raise|Core|Bodyweight|core
+Hack Squat Machine|Quadriceps|Machine|squat
+Single-Arm Dumbbell Row|Back|Dumbbell|pull
+Seated Leg Curl Machine|Hamstrings|Machine|curl
+Cable Triceps Straight Bar Pushdown|Triceps|Cable|extension
+Standing Barbell Overhead Press (Military Press)|Shoulders|Barbell|press
+Trap Bar Deadlift|Full Body|Trap Bar|hinge
+Neutral Grip Lat Pulldown|Back|Cable|pull
+Dumbbell Walking Lunges|Quadriceps|Dumbbell|squat
+Cable Biceps Curl|Biceps|Cable|curl
+Chest Supported Dumbbell Row|Back|Dumbbell|pull
+Assisted Dip Machine|Chest|Machine|press
+Bench Dips|Triceps|Bodyweight|extension
+Seated Calf Raise Machine|Calves|Machine|raise
+Lean-Away Cable Lateral Raise|Shoulders|Cable|raise
+EZ-Bar Biceps Curl|Biceps|EZ-Bar|curl
+Kneeling Cable Crunch|Core|Cable|core
+Abdominal Crunch Machine|Core|Machine|core
+EZ-Bar Reverse Curl|Forearms|EZ-Bar|curl
+Arnold Dumbbell Press|Shoulders|Dumbbell|press
+Flat Dumbbell Bench Press|Chest|Dumbbell|press
+Close-Grip Barbell Bench Press|Triceps|Barbell|press
+Dumbbell Preacher Curl|Biceps|Dumbbell|curl
+Incline Bench Spider Curl|Biceps|Dumbbell|curl
+Lying Dumbbell Skull Crushers|Triceps|Dumbbell|extension
+Lying Floor Leg Raises|Core|Bodyweight|core
+Bench Press (Smith Machine)|Chest|Machine|press
+Close Feet Leg Press|Quadriceps|Machine|squat
+Lever Horizontal Leg Press|Quadriceps|Machine|squat
+Sled 45 Degree Wide Leg Press|Quadriceps|Machine|squat
+Smith Machine Leg Press|Quadriceps|Machine|squat
+"""
+        return rows.split(separator: "\n").enumerated().compactMap { index, raw in
+            let p = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            guard p.count == 4 else { return nil }
+            return ExerciseDefinition(
+                id: "ex-\(index)",
+                name: p[0],
+                muscle: p[1],
+                equipment: p[2],
+                movement: p[3]
+            )
+        }
+    }()
+
+    private static let databaseBuiltIn: [ExerciseDefinition] = {
+        guard let url = Bundle.main.url(forResource: "ExerciseDatabase", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let items = try? JSONDecoder().decode([ExerciseDBItem].self, from: data),
+              !items.isEmpty else {
+            return []
+        }
+
+        return items.map { item in
+            ExerciseDefinition(
+                id: "db-\(item.id)",
+                name: item.name,
+                muscle: broadMuscle(for: item),
+                equipment: displayEquipment(item.equipment),
+                movement: movement(for: item),
+                aliases: item.aliases ?? [],
+                sourceID: item.id,
+                sourceTarget: item.target,
+                sourceSecondaryMuscles: item.secondaryMuscles ?? [],
+                sourceBodyPart: item.bodyPart,
+                sourceSteps: item.steps ?? [],
+                sourceFormCues: item.formCues ?? []
+            )
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }()
+
+    static var all: [ExerciseDefinition] {
+        let builtIns = databaseBuiltIn.isEmpty ? legacyBuiltIn : databaseBuiltIn
+        return builtIns + CustomExerciseStore.load().map { $0.definition }
+    }
+
+    static func find(_ id: String) -> ExerciseDefinition? {
+        if let visible = all.first(where: { $0.id == id }) { return visible }
+        return legacyBuiltIn.first(where: { $0.id == id })
+    }
+
+    static func findByName(_ name: String) -> ExerciseDefinition? {
+        if let exact = all.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            return exact
+        }
+
+        if let alias = databaseBuiltIn.first(where: { exercise in
+            exercise.aliases.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame })
+        }) {
+            return alias
+        }
+
+        return legacyBuiltIn.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    static var muscles: [String] {
+        Array(Set(all.map(\.muscle))).sorted()
+    }
+
+    private static func broadMuscle(for item: ExerciseDBItem) -> String {
+        let target = normalized(item.target)
+        let bodyPart = normalized(item.bodyPart)
+
+        switch target {
+        case "pectorals", "upper pectorals":
+            return "Chest"
+        case "deltoids", "delts", "anterior deltoid", "posterior deltoid", "rear deltoids":
+            return "Shoulders"
+        case "biceps":
+            return "Biceps"
+        case "triceps":
+            return "Triceps"
+        case "forearms", "forearm extensors":
+            return "Forearms"
+        case "quadriceps", "quads":
+            return "Quadriceps"
+        case "hamstrings":
+            return "Hamstrings"
+        case "glutes", "gluteus medius", "abductors":
+            return "Glutes"
+        case "adductors":
+            return "Adductors"
+        case "calves", "peroneals":
+            return "Calves"
+        case "abdominals", "abs", "rectus abdominis", "obliques", "hip flexors":
+            return "Core"
+        case "lats", "middle back", "upper back", "rhomboids", "traps", "erector spinae", "erectors", "spinal erectors", "spine", "thoracic spine":
+            return "Back"
+        case "neck flexors", "sternocleidomastoid":
+            return "Neck"
+        case "cardiovascular system":
+            return "Cardio"
+        case "full body":
+            return "Full Body"
+        default:
+            switch bodyPart {
+            case "chest": return "Chest"
+            case "shoulders": return "Shoulders"
+            case "upper arms": return "Arms"
+            case "lower arms": return "Forearms"
+            case "upper legs": return "Legs"
+            case "lower legs": return "Calves"
+            case "waist": return "Core"
+            case "back": return "Back"
+            case "hips": return "Glutes"
+            case "cardio": return "Cardio"
+            default: return "Full Body"
+            }
+        }
+    }
+
+    private static func movement(for item: ExerciseDBItem) -> String {
+        let name = normalized(item.name)
+        let target = normalized(item.target)
+        let bodyPart = normalized(item.bodyPart)
+
+        if bodyPart == "cardio" || target == "cardiovascular system" { return "cardio" }
+        if ["abdominals", "abs", "rectus abdominis", "obliques", "hip flexors"].contains(target) { return "core" }
+
+        if name.contains("curl") { return "curl" }
+        if name.contains("pushdown") || name.contains("extension") || name.contains("kickback") { return "extension" }
+        if name.contains("raise") || name.contains("fly") || name.contains("abduction") || name.contains("adduction") { return "raise" }
+        if name.contains("squat") || name.contains("lunge") || name.contains("leg press") || name.contains("step up") { return "squat" }
+        if name.contains("deadlift") || name.contains("hip thrust") || name.contains("bridge") || name.contains("swing") || name.contains("hyperextension") || name.contains("back extension") || name.contains("good morning") { return "hinge" }
+        if name.contains("row") || name.contains("pulldown") || name.contains("pull up") || name.contains("pull-up") || name.contains("chin up") || name.contains("chin-up") || name.contains("pullover") { return "pull" }
+        if name.contains("press") || name.contains("push up") || name.contains("push-up") || name.contains("dip") { return "press" }
+
+        if ["biceps", "lats", "middle back", "upper back", "rhomboids"].contains(target) { return "pull" }
+        if ["pectorals", "upper pectorals", "deltoids", "delts", "anterior deltoid", "triceps"].contains(target) { return "press" }
+        if ["quadriceps", "quads"].contains(target) { return "squat" }
+        if ["hamstrings", "glutes", "erector spinae", "erectors", "spinal erectors"].contains(target) { return "hinge" }
+        if ["calves", "peroneals"].contains(target) { return "raise" }
+
+        return "other"
+    }
+
+    private static func displayEquipment(_ value: String?) -> String {
+        switch normalized(value) {
+        case "body weight": return "Bodyweight"
+        case "ez barbell": return "EZ-Bar"
+        case "leverage machine": return "Leverage Machine"
+        case "sled machine": return "Sled Machine"
+        case "smith machine": return "Smith Machine"
+        case "stability ball": return "Stability Ball"
+        case "barbell": return "Barbell"
+        case "dumbbell": return "Dumbbell"
+        case "cable": return "Cable"
+        case "band": return "Band"
+        case "kettlebell": return "Kettlebell"
+        case "rope": return "Rope"
+        case "weighted": return "Weighted"
+        default:
+            guard let value, !value.isEmpty else { return "Other" }
+            return value.capitalized
+        }
+    }
+
+    private static func normalized(_ value: String?) -> String {
+        (value ?? "")
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+ell|press
 Arnold Press (Dumbbell)|Shoulders|Dumbbell|press
 Shoulder Press (Machine)|Shoulders|Machine|press
 Lateral Raise (Dumbbell)|Shoulders|Dumbbell|raise
@@ -1053,7 +1348,7 @@ enum ExerciseSearch {
             exercise.muscle,
             exercise.equipment,
             exercise.movement
-        ] + (aliases[exercise.name] ?? [])
+        ] + exercise.aliases + (aliases[exercise.name] ?? [])
 
         if haystacks.contains(where: { normalize($0).contains(q) }) { return true }
 
@@ -2033,7 +2328,11 @@ struct ExerciseDBItem: Decodable {
     let aliases: [String]?
     let bodyPart: String?
     let target: String?
+    let secondaryMuscles: [String]?
     let equipment: String?
+    let muscleGroup: String?
+    let steps: [String]?
+    let formCues: [String]?
     let videos: ExerciseDBGenderMedia?
     let thumbnails: ExerciseDBGenderMedia?
 }
@@ -2059,6 +2358,14 @@ actor ExerciseMediaCatalog {
 
     func exercises() async throws -> [ExerciseDBItem] {
         if let cached { return cached }
+
+        if let localURL = Bundle.main.url(forResource: "ExerciseDatabase", withExtension: "json"),
+           let localData = try? Data(contentsOf: localURL),
+           let localItems = try? JSONDecoder().decode([ExerciseDBItem].self, from: localData),
+           !localItems.isEmpty {
+            cached = localItems
+            return localItems
+        }
 
         let url = URL(string: "https://raw.githubusercontent.com/luisaraujoc/free-exercise-db-api/main/data/exercises.json")!
         var request = URLRequest(url: url)
@@ -2089,7 +2396,7 @@ enum ExerciseMediaService {
 
         let selected: ExerciseDBItem?
 
-        if let sourceID = exactSourceIDs[exercise.name] {
+        if let sourceID = exercise.sourceID ?? exactSourceIDs[exercise.name] {
             selected = items.first(where: { $0.id == sourceID })
         } else {
             let query = preferredSearchTerm(for: exercise)
@@ -8192,57 +8499,141 @@ struct BodyMuscleFigure: View {
     let side: MuscleContribution.BodySide
     let intensity: [String: Double]
 
-    private var zones: [(String, CGFloat, CGFloat)] {
+    private struct Zone: Identifiable {
+        let id: String
+        let muscle: String
+        let x: CGFloat
+        let y: CGFloat
+        let width: CGFloat
+        let height: CGFloat
+        let rotation: Double
+
+        init(
+            _ id: String,
+            _ muscle: String,
+            _ x: CGFloat,
+            _ y: CGFloat,
+            _ width: CGFloat,
+            _ height: CGFloat,
+            _ rotation: Double = 0
+        ) {
+            self.id = id
+            self.muscle = muscle
+            self.x = x
+            self.y = y
+            self.width = width
+            self.height = height
+            self.rotation = rotation
+        }
+    }
+
+    private var zones: [Zone] {
         if side == .front {
             return [
-                ("Front Delts", 0.27, 0.22),
-                ("Side Delts", 0.74, 0.22),
-                ("Upper Chest", 0.50, 0.25),
-                ("Mid Chest", 0.50, 0.32),
-                ("Lower Chest", 0.50, 0.38),
-                ("Biceps", 0.26, 0.39),
-                ("Forearms", 0.20, 0.52),
-                ("Abs", 0.50, 0.48),
-                ("Obliques", 0.66, 0.48),
-                ("Hip Flexors", 0.50, 0.59),
-                ("Adductors", 0.50, 0.69),
-                ("Quadriceps", 0.37, 0.73)
+                Zone("neck", "Neck", 0.50, 0.18, 0.10, 0.07),
+                Zone("front-delt-l", "Front Delts", 0.37, 0.27, 0.10, 0.08, -18),
+                Zone("front-delt-r", "Front Delts", 0.63, 0.27, 0.10, 0.08, 18),
+                Zone("side-delt-l", "Side Delts", 0.32, 0.28, 0.08, 0.09, -20),
+                Zone("side-delt-r", "Side Delts", 0.68, 0.28, 0.08, 0.09, 20),
+                Zone("upper-chest-l", "Upper Chest", 0.44, 0.30, 0.12, 0.07, -8),
+                Zone("upper-chest-r", "Upper Chest", 0.56, 0.30, 0.12, 0.07, 8),
+                Zone("mid-chest-l", "Mid Chest", 0.44, 0.35, 0.13, 0.09),
+                Zone("mid-chest-r", "Mid Chest", 0.56, 0.35, 0.13, 0.09),
+                Zone("lower-chest", "Lower Chest", 0.50, 0.40, 0.22, 0.06),
+                Zone("biceps-l", "Biceps", 0.28, 0.39, 0.07, 0.14, -7),
+                Zone("biceps-r", "Biceps", 0.72, 0.39, 0.07, 0.14, 7),
+                Zone("brachialis-l", "Brachialis", 0.31, 0.43, 0.05, 0.10, -7),
+                Zone("brachialis-r", "Brachialis", 0.69, 0.43, 0.05, 0.10, 7),
+                Zone("forearm-l", "Forearms", 0.25, 0.53, 0.06, 0.16, -5),
+                Zone("forearm-r", "Forearms", 0.75, 0.53, 0.06, 0.16, 5),
+                Zone("abs", "Abs", 0.50, 0.50, 0.15, 0.20),
+                Zone("oblique-l", "Obliques", 0.40, 0.51, 0.07, 0.18),
+                Zone("oblique-r", "Obliques", 0.60, 0.51, 0.07, 0.18),
+                Zone("hip-flexor-l", "Hip Flexors", 0.45, 0.61, 0.07, 0.08),
+                Zone("hip-flexor-r", "Hip Flexors", 0.55, 0.61, 0.07, 0.08),
+                Zone("abductor-l", "Abductors", 0.37, 0.64, 0.07, 0.10, 15),
+                Zone("abductor-r", "Abductors", 0.63, 0.64, 0.07, 0.10, -15),
+                Zone("adductor-l", "Adductors", 0.46, 0.69, 0.07, 0.14, -5),
+                Zone("adductor-r", "Adductors", 0.54, 0.69, 0.07, 0.14, 5),
+                Zone("quad-l", "Quadriceps", 0.41, 0.76, 0.10, 0.24),
+                Zone("quad-r", "Quadriceps", 0.59, 0.76, 0.10, 0.24),
+                Zone("shin-l", "Shins", 0.41, 0.91, 0.065, 0.14),
+                Zone("shin-r", "Shins", 0.59, 0.91, 0.065, 0.14)
             ]
         }
 
         return [
-            ("Traps", 0.50, 0.20),
-            ("Rear Delts", 0.74, 0.24),
-            ("Upper Back", 0.50, 0.30),
-            ("Lats", 0.65, 0.39),
-            ("Triceps", 0.77, 0.40),
-            ("Spinal Erectors", 0.50, 0.48),
-            ("Glutes", 0.50, 0.60),
-            ("Hamstrings", 0.38, 0.73),
-            ("Calves", 0.38, 0.88)
+            Zone("traps", "Traps", 0.50, 0.26, 0.20, 0.12),
+            Zone("rear-delt-l", "Rear Delts", 0.34, 0.29, 0.09, 0.09, -18),
+            Zone("rear-delt-r", "Rear Delts", 0.66, 0.29, 0.09, 0.09, 18),
+            Zone("upper-back", "Upper Back", 0.50, 0.35, 0.25, 0.13),
+            Zone("lat-l", "Lats", 0.41, 0.43, 0.10, 0.20, 8),
+            Zone("lat-r", "Lats", 0.59, 0.43, 0.10, 0.20, -8),
+            Zone("triceps-l", "Triceps", 0.28, 0.40, 0.07, 0.15, -7),
+            Zone("triceps-r", "Triceps", 0.72, 0.40, 0.07, 0.15, 7),
+            Zone("erector-l", "Spinal Erectors", 0.46, 0.51, 0.055, 0.23),
+            Zone("erector-r", "Spinal Erectors", 0.54, 0.51, 0.055, 0.23),
+            Zone("glute-l", "Glutes", 0.43, 0.64, 0.12, 0.13),
+            Zone("glute-r", "Glutes", 0.57, 0.64, 0.12, 0.13),
+            Zone("ham-l", "Hamstrings", 0.41, 0.77, 0.09, 0.23),
+            Zone("ham-r", "Hamstrings", 0.59, 0.77, 0.09, 0.23),
+            Zone("calf-l", "Calves", 0.41, 0.91, 0.07, 0.15),
+            Zone("calf-r", "Calves", 0.59, 0.91, 0.07, 0.15)
         ]
     }
 
     var body: some View {
         GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+
             ZStack {
                 RoundedRectangle(cornerRadius: 16)
                     .fill(RFTheme.raised.opacity(0.55))
 
-                Image(systemName: "figure.stand")
-                    .font(.system(size: min(proxy.size.width * 0.82, 150), weight: .ultraLight))
-                    .foregroundStyle(RFTheme.muted.opacity(0.22))
+                Group {
+                    Circle()
+                        .frame(width: w * 0.13, height: w * 0.13)
+                        .position(x: w * 0.50, y: h * 0.14)
 
-                ForEach(zones, id: \.0) { zone in
-                    if let value = intensity[zone.0], value > 0 {
-                        Circle()
-                            .fill(RFTheme.accent.opacity(0.25 + value * 0.75))
-                            .frame(width: 18 + value * 10, height: 18 + value * 10)
-                            .overlay(Circle().stroke(Color.white.opacity(0.45), lineWidth: 1))
-                            .position(
-                                x: proxy.size.width * zone.1,
-                                y: proxy.size.height * zone.2
+                    RoundedRectangle(cornerRadius: w * 0.09)
+                        .frame(width: w * 0.30, height: h * 0.34)
+                        .position(x: w * 0.50, y: h * 0.40)
+
+                    Capsule()
+                        .frame(width: w * 0.075, height: h * 0.34)
+                        .rotationEffect(.degrees(6))
+                        .position(x: w * 0.28, y: h * 0.42)
+
+                    Capsule()
+                        .frame(width: w * 0.075, height: h * 0.34)
+                        .rotationEffect(.degrees(-6))
+                        .position(x: w * 0.72, y: h * 0.42)
+
+                    Capsule()
+                        .frame(width: w * 0.10, height: h * 0.43)
+                        .position(x: w * 0.41, y: h * 0.75)
+
+                    Capsule()
+                        .frame(width: w * 0.10, height: h * 0.43)
+                        .position(x: w * 0.59, y: h * 0.75)
+                }
+                .foregroundStyle(RFTheme.muted.opacity(0.20))
+
+                ForEach(zones) { zone in
+                    if let value = intensity[zone.muscle], value > 0 {
+                        Capsule()
+                            .fill(RFTheme.accent.opacity(0.22 + (0.78 * value)))
+                            .frame(
+                                width: max(5, w * zone.width),
+                                height: max(5, h * zone.height)
                             )
+                            .rotationEffect(.degrees(zone.rotation))
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color.white.opacity(0.30), lineWidth: 0.8)
+                            )
+                            .position(x: w * zone.x, y: h * zone.y)
                     }
                 }
 
