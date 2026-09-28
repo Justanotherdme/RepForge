@@ -8431,11 +8431,21 @@ struct MuscleHeatMapView: View {
                 Text(L10n.text("No muscle data yet.", "Nog geen spierdata."))
                     .foregroundStyle(RFTheme.muted)
             } else {
-                HStack(spacing: 16) {
-                    BodyMuscleFigure(side: .front, intensity: intensity)
-                    BodyMuscleFigure(side: .back, intensity: intensity)
+                VStack(spacing: 12) {
+                    HStack(alignment: .top, spacing: 12) {
+                        BodyMuscleFigure(side: .front, intensity: intensity)
+                        BodyMuscleFigure(side: .back, intensity: intensity)
+                    }
+                    .frame(maxWidth: 420)
+
+                    MuscleHeatLegend()
+                        .frame(maxWidth: 220)
                 }
-                .frame(height: 315)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .padding(.horizontal, 10)
+                .background(Color.black)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 115), spacing: 8)], spacing: 8) {
                     ForEach(Array(entries.prefix(8))) { entry in
