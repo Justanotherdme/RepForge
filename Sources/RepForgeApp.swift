@@ -4,6 +4,8 @@ import Charts
 import AVKit
 import UIKit
 import UniformTypeIdentifiers
+import UserNotifications
+import CoreBluetooth
 
 // MARK: - Theme
 
@@ -52,6 +54,28 @@ enum AppPreferences {
     static var autoCollapseCompleted: Bool {
         if UserDefaults.standard.object(forKey: "autoCollapseCompleted") == nil { return true }
         return UserDefaults.standard.bool(forKey: "autoCollapseCompleted")
+    }
+
+    static var restNotifications: Bool {
+        if UserDefaults.standard.object(forKey: "restNotifications") == nil { return true }
+        return UserDefaults.standard.bool(forKey: "restNotifications")
+    }
+
+    static var countdownHaptics: Bool {
+        if UserDefaults.standard.object(forKey: "countdownHaptics") == nil { return true }
+        return UserDefaults.standard.bool(forKey: "countdownHaptics")
+    }
+
+    static var compactWorkoutMode: Bool {
+        UserDefaults.standard.bool(forKey: "compactWorkoutMode")
+    }
+
+    static var highContrastWorkout: Bool {
+        UserDefaults.standard.bool(forKey: "highContrastWorkout")
+    }
+
+    static var progressionRule: String {
+        UserDefaults.standard.string(forKey: "progressionRule") ?? "double"
     }
 
     static var progressionStepKg: Double {
@@ -234,6 +258,167 @@ enum Haptics {
     static func success() {
         guard AppPreferences.hapticsEnabled else { return }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+}
+
+final class RestNotificationManager {
+    static let shared = RestNotificationManager()
+    private let identifier = "repforge.rest.timer"
+
+    func requestAuthorization() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    func schedule(seconds: Int, exerciseName: String) {
+        guard AppPreferences.restNotifications, seconds > 0 else { return }
+
+        requestAuthorization()
+        cancel()
+
+        let content = UNMutableNotificationContent()
+        content.title = L10n.text("Rest complete", "Rust voorbij")
+        content.body = exerciseName.isEmpty
+            ? L10n.text("Time for your next set.", "Tijd voor je volgende set.")
+            : "\(exerciseName) • \(L10n.text("next set is ready", "volgende set is klaar"))"
+        content.sound = .default
+
+        let trigger = UNTimeIntervalNotificationTrigger(
+            timeInterval: TimeInterval(max(1, seconds)),
+            repeats: false
+        )
+
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+        )
+    }
+
+    func cancel() {
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: [identifier])
+    }
+}
+
+final class HeartRateMonitor: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeripheralDelegate {
+    static let shared = HeartRateMonitor()
+
+    @Published private(set) var bpm: Int?
+    @Published private(set) var sensorName: String?
+    @Published private(set) var isScanning = false
+    @Published private(set) var isConnected = false
+
+    private var central: CBCentralManager!
+    private var peripheral: CBPeripheral?
+
+    private let heartRateService = CBUUID(string: "180D")
+    private let heartRateMeasurement = CBUUID(string: "2A37")
+
+    override private init() {
+        super.init()
+        central = CBCentralManager(delegate: self, queue: nil)
+    }
+
+    func startScanning() {
+        guard central.state == .poweredOn else { return }
+        isScanning = true
+        central.scanForPeripherals(
+            withServices: [heartRateService],
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+        )
+    }
+
+    func stopScanning() {
+        central.stopScan()
+        isScanning = false
+    }
+
+    func disconnect() {
+        if let peripheral {
+            central.cancelPeripheralConnection(peripheral)
+        }
+        self.peripheral = nil
+        bpm = nil
+        sensorName = nil
+        isConnected = false
+    }
+
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        if central.state != .poweredOn {
+            isScanning = false
+            isConnected = false
+        }
+    }
+
+    func centralManager(
+        _ central: CBCentralManager,
+        didDiscover peripheral: CBPeripheral,
+        advertisementData: [String : Any],
+        rssi RSSI: NSNumber
+    ) {
+        stopScanning()
+        self.peripheral = peripheral
+        peripheral.delegate = self
+        sensorName = peripheral.name ?? L10n.text("Heart-rate sensor", "Hartslagsensor")
+        central.connect(peripheral)
+    }
+
+    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        isConnected = true
+        peripheral.discoverServices([heartRateService])
+    }
+
+    func centralManager(
+        _ central: CBCentralManager,
+        didDisconnectPeripheral peripheral: CBPeripheral,
+        error: Error?
+    ) {
+        isConnected = false
+        bpm = nil
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        guard error == nil else { return }
+        peripheral.services?.forEach { service in
+            if service.uuid == heartRateService {
+                peripheral.discoverCharacteristics([heartRateMeasurement], for: service)
+            }
+        }
+    }
+
+    func peripheral(
+        _ peripheral: CBPeripheral,
+        didDiscoverCharacteristicsFor service: CBService,
+        error: Error?
+    ) {
+        guard error == nil else { return }
+        service.characteristics?.forEach { characteristic in
+            if characteristic.uuid == heartRateMeasurement {
+                peripheral.setNotifyValue(true, for: characteristic)
+            }
+        }
+    }
+
+    func peripheral(
+        _ peripheral: CBPeripheral,
+        didUpdateValueFor characteristic: CBCharacteristic,
+        error: Error?
+    ) {
+        guard error == nil,
+              characteristic.uuid == heartRateMeasurement,
+              let data = characteristic.value,
+              data.count >= 2 else { return }
+
+        let bytes = [UInt8](data)
+        let flags = bytes[0]
+        let isUInt16 = (flags & 0x01) != 0
+
+        let value: Int
+        if isUInt16, bytes.count >= 3 {
+            value = Int(UInt16(bytes[1]) | (UInt16(bytes[2]) << 8))
+        } else {
+            value = Int(bytes[1])
+        }
+
+        bpm = value
     }
 }
 
@@ -1556,6 +1741,40 @@ final class UserProfile {
     }
 }
 
+@Model
+final class BodyMeasurement {
+    var id: UUID
+    var date: Date
+    var bodyWeightKg: Double
+    var bodyFatPercent: Double?
+    var waistCm: Double?
+    var chestCm: Double?
+    var armCm: Double?
+    var thighCm: Double?
+    var hipCm: Double?
+
+    init(
+        date: Date = .now,
+        bodyWeightKg: Double = 0,
+        bodyFatPercent: Double? = nil,
+        waistCm: Double? = nil,
+        chestCm: Double? = nil,
+        armCm: Double? = nil,
+        thighCm: Double? = nil,
+        hipCm: Double? = nil
+    ) {
+        self.id = UUID()
+        self.date = date
+        self.bodyWeightKg = bodyWeightKg
+        self.bodyFatPercent = bodyFatPercent
+        self.waistCm = waistCm
+        self.chestCm = chestCm
+        self.armCm = armCm
+        self.thighCm = thighCm
+        self.hipCm = hipCm
+    }
+}
+
 // MARK: - Metrics
 
 enum Metrics {
@@ -2069,7 +2288,8 @@ struct RepForgeApp: App {
             WorkoutSession.self,
             ExerciseLog.self,
             WorkoutSet.self,
-            UserProfile.self
+            UserProfile.self,
+            BodyMeasurement.self
         ])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         do {
@@ -8187,8 +8407,8 @@ struct SettingsView: View {
     @State private var backupMessage: String?
 
     private var appVersionDisplay: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.0"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "3"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.1"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "4"
         return "\(version) (\(build))"
     }
 
