@@ -69,18 +69,30 @@ struct RepForgeRestTimerLiveActivity: Widget {
                     .foregroundStyle(.blue)
                 }
             } compactLeading: {
-                Image(systemName: "timer")
-                    .foregroundStyle(.blue)
+                ZStack {
+                    Circle()
+                        .stroke(Color.blue, lineWidth: 2.5)
+                    Image(systemName: "dumbbell.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.blue)
+                }
+                .frame(width: 27, height: 27)
             } compactTrailing: {
-                Text(
-                            timerInterval: context.state.endDate.addingTimeInterval(-TimeInterval(context.state.totalSeconds))...context.state.endDate,
-                            countsDown: true
-                        )
-                    .font(.caption2.monospacedDigit().bold())
+                Text(context.state.endDate, style: .timer)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .monospacedDigit()
                     .foregroundStyle(.blue)
+                    .lineLimit(1)
+                    .fixedSize()
             } minimal: {
-                Image(systemName: "timer")
-                    .foregroundStyle(.blue)
+                ZStack {
+                    Circle()
+                        .stroke(Color.blue, lineWidth: 2)
+                    Image(systemName: "dumbbell.fill")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.blue)
+                }
+                .frame(width: 22, height: 22)
             }
             .widgetURL(URL(string: "repforge://workout"))
             .keylineTint(.blue)
