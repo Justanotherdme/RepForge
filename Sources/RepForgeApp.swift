@@ -478,23 +478,14 @@ struct GymProfile: Codable, Identifiable, Hashable {
 
 enum GymProfileStore {
     static let defaultID = "gym-default"
-    private static let key = "repforge.gyms.v1"
 
     static func load() -> [GymProfile] {
-        if let data = UserDefaults.standard.data(forKey: key),
-           let decoded = try? JSONDecoder().decode([GymProfile].self, from: data),
-           !decoded.isEmpty {
-            return decoded
-        }
-        return [GymProfile(id: defaultID, name: L10n.text("Main Gym", "Hoofdgym"), note: "")]
+        SwiftDataUserStore.gyms()
     }
 
     static func save(_ gyms: [GymProfile]) {
-        guard !gyms.isEmpty,
-              let data = try? JSONEncoder().encode(gyms) else { return }
-        UserDefaults.standard.set(data, forKey: key)
-        let revision = UserDefaults.standard.integer(forKey: "gymRevision")
-        UserDefaults.standard.set(revision + 1, forKey: "gymRevision")
+        SwiftDataUserStore.saveGyms(gyms)
+        bumpRevision()
     }
 
     static func profile(id: String?) -> GymProfile {
@@ -540,6 +531,11 @@ enum GymProfileStore {
 
     static func sessionGymID(_ session: WorkoutSession) -> String {
         session.gymID ?? defaultID
+    }
+
+    private static func bumpRevision() {
+        let revision = UserDefaults.standard.integer(forKey: "gymRevision")
+        UserDefaults.standard.set(revision + 1, forKey: "gymRevision")
     }
 }
 
@@ -944,19 +940,12 @@ struct CustomExerciseRecord: Codable, Identifiable, Hashable {
 }
 
 enum CustomExerciseStore {
-    private static let key = "repforge.customExercises.v1"
-
     static func load() -> [CustomExerciseRecord] {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let records = try? JSONDecoder().decode([CustomExerciseRecord].self, from: data) else {
-            return []
-        }
-        return records
+        SwiftDataUserStore.customExercises()
     }
 
     static func save(_ records: [CustomExerciseRecord]) {
-        guard let data = try? JSONEncoder().encode(records) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        SwiftDataUserStore.saveCustomExercises(records)
     }
 
     static func add(name: String, muscle: String, equipment: String, movement: String) {
@@ -1094,15 +1083,12 @@ enum ExerciseSearch {
 }
 
 enum ExerciseShortcutStore {
-    private static let favoritesKey = "repforge.exercise.favorites.v1"
-    private static let recentKey = "repforge.exercise.recents.v1"
-
     static var favorites: [String] {
-        UserDefaults.standard.stringArray(forKey: favoritesKey) ?? []
+        SwiftDataUserStore.exerciseFavorites()
     }
 
     static var recent: [String] {
-        UserDefaults.standard.stringArray(forKey: recentKey) ?? []
+        SwiftDataUserStore.exerciseRecents()
     }
 
     static func isFavorite(_ id: String) -> Bool {
@@ -1116,20 +1102,20 @@ enum ExerciseShortcutStore {
         } else {
             items.insert(id, at: 0)
         }
-        UserDefaults.standard.set(items, forKey: favoritesKey)
+        SwiftDataUserStore.saveExerciseFavorites(items)
         bumpRevision()
     }
 
     static func recordRecent(_ id: String) {
         var items = recent.filter { $0 != id }
         items.insert(id, at: 0)
-        UserDefaults.standard.set(Array(items.prefix(20)), forKey: recentKey)
+        SwiftDataUserStore.saveExerciseRecents(Array(items.prefix(20)))
         bumpRevision()
     }
 
     static func restore(favorites: [String], recent: [String]) {
-        UserDefaults.standard.set(favorites, forKey: favoritesKey)
-        UserDefaults.standard.set(recent, forKey: recentKey)
+        SwiftDataUserStore.saveExerciseFavorites(favorites)
+        SwiftDataUserStore.saveExerciseRecents(recent)
         bumpRevision()
     }
 
@@ -1173,19 +1159,12 @@ struct ScheduledWorkoutRecord: Codable, Identifiable, Hashable {
 }
 
 enum WorkoutScheduleStore {
-    private static let key = "repforge.schedule.v1"
-
     static func load() -> [ScheduledWorkoutRecord] {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let items = try? JSONDecoder().decode([ScheduledWorkoutRecord].self, from: data) else {
-            return []
-        }
-        return items.sorted { $0.date < $1.date }
+        SwiftDataUserStore.scheduledWorkouts()
     }
 
     static func save(_ items: [ScheduledWorkoutRecord]) {
-        guard let data = try? JSONEncoder().encode(items) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        SwiftDataUserStore.saveScheduledWorkouts(items)
         bumpRevision()
     }
 
@@ -1570,14 +1549,8 @@ enum BuiltInProgram {
 final class ProgramPlanStore: ObservableObject {
     @Published private(set) var customDays: [String: ProgramDay] = [:]
 
-    private let defaultsKey = "repforge.program.customDays.v1"
-
     init() {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
-              let decoded = try? JSONDecoder().decode([String: ProgramDay].self, from: data) else {
-            return
-        }
-        customDays = decoded
+        customDays = SwiftDataUserStore.programDays()
     }
 
     func day(for base: ProgramDay) -> ProgramDay {
@@ -1603,8 +1576,7 @@ final class ProgramPlanStore: ObservableObject {
     }
 
     private func persist() {
-        guard let data = try? JSONEncoder().encode(customDays) else { return }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+        SwiftDataUserStore.saveProgramDays(customDays)
     }
 }
 
@@ -2375,22 +2347,7 @@ enum PersistenceMaintenance {
 
 @main
 struct RepForgeApp: App {
-    private let container: ModelContainer = {
-        let schema = Schema([
-            WorkoutTemplate.self,
-            WorkoutSession.self,
-            ExerciseLog.self,
-            WorkoutSet.self,
-            UserProfile.self,
-            BodyMeasurement.self
-        ])
-        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-        do {
-            return try ModelContainer(for: schema, configurations: [config])
-        } catch {
-            fatalError("SwiftData initialization failed: \(error)")
-        }
-    }()
+    private let container = RepForgePersistence.container
 
     var body: some Scene {
         WindowGroup {
@@ -2612,7 +2569,7 @@ struct StartWorkoutView: View {
 
                             Spacer()
 
-                            Text("0.2.6")
+                            Text("0.2.7")
                                 .font(.caption.bold())
                                 .foregroundStyle(RFTheme.accent)
                                 .padding(.horizontal, 10)
@@ -9176,8 +9133,8 @@ struct SettingsView: View {
     @State private var strongImportMessage: String?
 
     private var appVersionDisplay: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.6"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "15"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.7"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "16"
         return "\(version) (\(build))"
     }
 
@@ -9462,8 +9419,8 @@ struct SettingsView: View {
                     )
                     Label(
                         L10n.text(
-                            "0.2.6 adds direct Strong CSV migration for workout history.",
-                            "0.2.6 voegt directe Strong CSV-migratie voor trainingsgeschiedenis toe."
+                            "0.2.7 moves persistent RepForge user data into SwiftData with automatic migration.",
+                            "0.2.7 verplaatst blijvende RepForge-gebruikersdata naar SwiftData met automatische migratie."
                         ),
                         systemImage: "sparkles"
                     )
@@ -9709,13 +9666,7 @@ struct SettingsView: View {
             )
         }
 
-        let programDays: [String: ProgramDay] = {
-            guard let data = UserDefaults.standard.data(forKey: "repforge.program.customDays.v1"),
-                  let decoded = try? JSONDecoder().decode([String: ProgramDay].self, from: data) else {
-                return [:]
-            }
-            return decoded
-        }()
+        let programDays = SwiftDataUserStore.programDays()
 
         let settings = BackupSettings(
             appLanguage: appLanguage,
@@ -9887,9 +9838,7 @@ struct SettingsView: View {
         WorkoutScheduleStore.restore(payload.scheduledWorkouts)
         ExerciseShortcutStore.restore(favorites: payload.favorites, recent: payload.recents)
 
-        if let data = try? JSONEncoder().encode(payload.programDays) {
-            UserDefaults.standard.set(data, forKey: "repforge.program.customDays.v1")
-        }
+        SwiftDataUserStore.saveProgramDays(payload.programDays)
 
         appLanguage = payload.settings.appLanguage
         measurementSystem = payload.settings.measurementSystem
