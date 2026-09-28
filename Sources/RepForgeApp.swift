@@ -890,6 +890,10 @@ Incline Bench Spider Curl|Biceps|Dumbbell|curl
 Lying Dumbbell Skull Crushers|Triceps|Dumbbell|extension
 Lying Floor Leg Raises|Core|Bodyweight|core
 Bench Press (Smith Machine)|Chest|Machine|press
+Close Feet Leg Press|Quadriceps|Machine|squat
+Lever Horizontal Leg Press|Quadriceps|Machine|squat
+Sled 45 Degree Wide Leg Press|Quadriceps|Machine|squat
+Smith Machine Leg Press|Quadriceps|Machine|squat
 """
         return rows.split(separator: "\n").enumerated().compactMap { index, raw in
             let p = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
@@ -1014,6 +1018,10 @@ enum ExerciseSearch {
         "Chest Supported Machine Row": ["chest supported row", "machine row"],
         "Chest Supported Dumbbell Row": ["chest supported row", "db row"],
         "Leg Press": ["legpress"],
+        "Close Feet Leg Press": ["close stance leg press", "narrow stance leg press", "platform narrow press"],
+        "Lever Horizontal Leg Press": ["horizontal leg press", "machine leg press", "horizontal plate loaded leg press"],
+        "Sled 45 Degree Wide Leg Press": ["45 degree leg press", "wide stance leg press", "plate loaded leg press"],
+        "Smith Machine Leg Press": ["smith leg press", "smith lying leg press", "smith platform press"],
         "Leg Extension (Machine)": ["leg ext", "quad extension"],
         "Leg Curl (Lying)": ["lying ham curl", "hamstring curl"],
         "Lying Leg Curl": ["lying ham curl", "hamstring curl"],
@@ -2166,12 +2174,17 @@ enum ExerciseMediaService {
         "Dumbbell Preacher Curl": "0402",
         "Lying Dumbbell Skull Crushers": "0351",
         "Lying Floor Leg Raises": "0865",
-        "Flat Leg Raise": "0865"
+        "Flat Leg Raise": "0865",
+        "Close Feet Leg Press": "drv-close-feet-leg-press",
+        "Lever Horizontal Leg Press": "2611",
+        "Sled 45 Degree Wide Leg Press": "0740",
+        "Smith Machine Leg Press": "0748"
     ]
 
     // The source database does not contain an exact enough demonstration for
     // these RepForge exercises. Showing no video is preferable to a wrong one.
     private static let noExactDemo: Set<String> = [
+        "Leg Press",
         "Cable Face Pull",
         "Face Pull",
         "Dumbbell Romanian Deadlift",
@@ -2210,7 +2223,6 @@ enum ExerciseMediaService {
             "Preacher Curl": "lever preacher curl",
             "Squat (Barbell)": "barbell squat",
             "Front Squat": "barbell front squat",
-            "Leg Press": "lever horizontal leg press",
             "Bulgarian Split Squat": "dumbbell bulgarian split squat",
             "Hip Thrust (Barbell)": "barbell hip thrust",
             "Standing Calf Raise (Dumbbell)": "dumbbell standing calf raise",
