@@ -237,7 +237,10 @@ enum RFTheme {
     }
 
     static var cardBorder: Color {
-        explicitLight ? Color.black.opacity(0.08) : Color.white.opacity(0.10)
+        if AppPreferences.highContrastWorkout {
+            return explicitLight ? Color.black.opacity(0.24) : Color.white.opacity(0.30)
+        }
+        return explicitLight ? Color.black.opacity(0.08) : Color.white.opacity(0.10)
     }
 
     static var heroGradient: LinearGradient {
@@ -1265,6 +1268,7 @@ struct RepForgeBackupPayload: Codable {
     var templates: [BackupTemplate]
     var sessions: [BackupSession]
     var profiles: [BackupProfile]
+    var bodyMeasurements: [BackupBodyMeasurement]?
     var customExercises: [CustomExerciseRecord]
     var gyms: [GymProfile]
     var scheduledWorkouts: [ScheduledWorkoutRecord]
@@ -1331,6 +1335,18 @@ struct BackupProfile: Codable {
     var createdAt: Date
 }
 
+struct BackupBodyMeasurement: Codable {
+    var id: UUID
+    var date: Date
+    var bodyWeightKg: Double
+    var bodyFatPercent: Double?
+    var waistCm: Double?
+    var chestCm: Double?
+    var armCm: Double?
+    var thighCm: Double?
+    var hipCm: Double?
+}
+
 struct BackupSettings: Codable {
     var appLanguage: String
     var measurementSystem: String
@@ -1344,6 +1360,11 @@ struct BackupSettings: Codable {
     var defaultRestSeconds: Int
     var autoRestTimer: Bool
     var autoCollapseCompleted: Bool
+    var restNotifications: Bool?
+    var countdownHaptics: Bool?
+    var compactWorkoutMode: Bool?
+    var highContrastWorkout: Bool?
+    var progressionRule: String?
     var progressionStepKg: Double
     var activeGymID: String
     var separateRecordsByGym: Bool
@@ -2511,7 +2532,7 @@ struct StartWorkoutView: View {
 
                             Spacer()
 
-                            Text("0.2.0")
+                            Text("0.2.1")
                                 .font(.caption.bold())
                                 .foregroundStyle(RFTheme.accent)
                                 .padding(.horizontal, 10)
@@ -7933,7 +7954,9 @@ struct ProfileView: View {
     @Environment(\.modelContext) private var context
     @Query private var profiles: [UserProfile]
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var sessions: [WorkoutSession]
+    @Query(sort: \BodyMeasurement.date, order: .reverse) private var measurements: [BodyMeasurement]
     @State private var editing = false
+    @State private var showMeasurementEditor = false
     @AppStorage("activeGymID") private var activeGymID = GymProfileStore.defaultID
     @AppStorage("gymRevision") private var gymRevision = 0
     @AppStorage("separateRecordsByGym") private var separateRecordsByGym = true
@@ -7975,6 +7998,11 @@ struct ProfileView: View {
                     EditProfileView(profile: profile)
                 }
             }
+            .sheet(isPresented: $showMeasurementEditor) {
+                if let profile {
+                    BodyMeasurementEditorView(profile: profile)
+                }
+            }
         }
     }
 
@@ -7999,6 +8027,11 @@ struct ProfileView: View {
             )
 
             ProfileActivityCard(activityData: activityData)
+
+            BodyMeasurementsCard(
+                measurements: measurements,
+                onAdd: { showMeasurementEditor = true }
+            )
 
             MuscleVolumeDashboard(entries: weeklyMuscleVolume)
             MuscleRecoveryDashboard(entries: recoveryData)
@@ -8064,6 +8097,246 @@ struct ProfileView: View {
             let count = completed.filter { cal.isDate($0.startedAt, inSameDayAs: date) }.count
             return (date, count)
         }
+    }
+}
+
+struct BodyMeasurementsCard: View {
+    let measurements: [BodyMeasurement]
+    let onAdd: () -> Void
+
+    private var chartData: [BodyMeasurement] {
+        Array(measurements.prefix(12).reversed())
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.text("Body measurements", "Lichaamsmetingen"))
+                        .font(.title3.bold())
+                    Text(L10n.text("Track trends over time", "Volg trends door de tijd"))
+                        .font(.caption)
+                        .foregroundStyle(RFTheme.muted)
+                }
+
+                Spacer()
+
+                Button(action: onAdd) {
+                    Image(systemName: "plus")
+                        .font(.headline.bold())
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(RFTheme.accent)
+            }
+
+            if let latest = measurements.first {
+                HStack(spacing: 8) {
+                    measurementPill(
+                        title: L10n.text("Weight", "Gewicht"),
+                        value: latest.bodyWeightKg > 0
+                            ? "\(AppPreferences.displayWeight(latest.bodyWeightKg).formatted(.number.precision(.fractionLength(0...1)))) \(AppPreferences.weightLabel)"
+                            : "—"
+                    )
+
+                    measurementPill(
+                        title: L10n.text("Body fat", "Vetpercentage"),
+                        value: latest.bodyFatPercent.map {
+                            "\($0.formatted(.number.precision(.fractionLength(0...1))))%"
+                        } ?? "—"
+                    )
+
+                    measurementPill(
+                        title: L10n.text("Waist", "Taille"),
+                        value: lengthText(latest.waistCm)
+                    )
+                }
+
+                if chartData.count > 1 {
+                    Chart(chartData) { item in
+                        LineMark(
+                            x: .value("Date", item.date),
+                            y: .value("Weight", AppPreferences.displayWeight(item.bodyWeightKg))
+                        )
+                        .interpolationMethod(.catmullRom)
+                        .foregroundStyle(RFTheme.accent)
+
+                        PointMark(
+                            x: .value("Date", item.date),
+                            y: .value("Weight", AppPreferences.displayWeight(item.bodyWeightKg))
+                        )
+                        .foregroundStyle(RFTheme.accent)
+                    }
+                    .frame(height: 150)
+                }
+
+                if let chest = latest.chestCm,
+                   let arm = latest.armCm,
+                   let thigh = latest.thighCm {
+                    HStack(spacing: 10) {
+                        Label("\(L10n.text("Chest", "Borst")) \(lengthText(chest))", systemImage: "figure.arms.open")
+                        Label("\(L10n.text("Arm", "Arm")) \(lengthText(arm))", systemImage: "dumbbell.fill")
+                        Label("\(L10n.text("Thigh", "Bovenbeen")) \(lengthText(thigh))", systemImage: "figure.walk")
+                    }
+                    .font(.caption2.bold())
+                    .foregroundStyle(RFTheme.muted)
+                }
+            } else {
+                Text(L10n.text(
+                    "Add your first measurement to track weight, body fat and circumferences.",
+                    "Voeg je eerste meting toe om gewicht, vetpercentage en omtrekken te volgen."
+                ))
+                .font(.caption)
+                .foregroundStyle(RFTheme.muted)
+                .padding(.vertical, 8)
+            }
+        }
+        .padding()
+        .background(RFTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(RFTheme.cardBorder)
+        )
+    }
+
+    private func measurementPill(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption2.bold())
+                .foregroundStyle(RFTheme.muted)
+            Text(value)
+                .font(.subheadline.bold())
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(9)
+        .background(RFTheme.field)
+        .clipShape(RoundedRectangle(cornerRadius: 11))
+    }
+
+    private func lengthText(_ cm: Double?) -> String {
+        guard let cm, cm > 0 else { return "—" }
+        return "\(AppPreferences.displayHeight(cm).formatted(.number.precision(.fractionLength(0...1)))) \(AppPreferences.heightLabel)"
+    }
+
+    private func lengthText(_ cm: Double) -> String {
+        "\(AppPreferences.displayHeight(cm).formatted(.number.precision(.fractionLength(0...1)))) \(AppPreferences.heightLabel)"
+    }
+}
+
+struct BodyMeasurementEditorView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
+    @Bindable var profile: UserProfile
+
+    @State private var date = Date.now
+    @State private var weight: Double
+    @State private var bodyFat: Double = 0
+    @State private var waist: Double = 0
+    @State private var chest: Double = 0
+    @State private var arm: Double = 0
+    @State private var thigh: Double = 0
+    @State private var hip: Double = 0
+
+    init(profile: UserProfile) {
+        self.profile = profile
+        _weight = State(initialValue: AppPreferences.displayWeight(profile.bodyWeightKg))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(L10n.text("Measurement", "Meting")) {
+                    DatePicker(
+                        L10n.text("Date", "Datum"),
+                        selection: $date,
+                        displayedComponents: .date
+                    )
+
+                    measurementField(
+                        L10n.text("Body weight", "Lichaamsgewicht"),
+                        unit: AppPreferences.weightLabel,
+                        value: $weight
+                    )
+
+                    measurementField(
+                        L10n.text("Body fat", "Vetpercentage"),
+                        unit: "%",
+                        value: $bodyFat
+                    )
+                }
+
+                Section(L10n.text("Circumferences", "Omtrekken")) {
+                    measurementField(L10n.text("Waist", "Taille"), unit: AppPreferences.heightLabel, value: $waist)
+                    measurementField(L10n.text("Chest", "Borst"), unit: AppPreferences.heightLabel, value: $chest)
+                    measurementField(L10n.text("Arm", "Arm"), unit: AppPreferences.heightLabel, value: $arm)
+                    measurementField(L10n.text("Thigh", "Bovenbeen"), unit: AppPreferences.heightLabel, value: $thigh)
+                    measurementField(L10n.text("Hips", "Heupen"), unit: AppPreferences.heightLabel, value: $hip)
+                }
+            }
+            .navigationTitle(L10n.text("Add Measurement", "Meting toevoegen"))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.text("Cancel", "Annuleren")) { dismiss() }
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.text("Save", "Opslaan")) {
+                        save()
+                    }
+                    .bold()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func measurementField(_ title: String, unit: String, value: Binding<Double>) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            DoneNumberField(
+                value: value,
+                integerOnly: false,
+                placeholder: "0"
+            )
+            .frame(width: 95, height: 38)
+
+            Text(unit)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 34, alignment: .leading)
+        }
+    }
+
+    private func save() {
+        let storedWeight = AppPreferences.storedWeightKg(weight)
+        let record = BodyMeasurement(
+            date: date,
+            bodyWeightKg: storedWeight,
+            bodyFatPercent: bodyFat > 0 ? bodyFat : nil,
+            waistCm: storedLength(waist),
+            chestCm: storedLength(chest),
+            armCm: storedLength(arm),
+            thighCm: storedLength(thigh),
+            hipCm: storedLength(hip)
+        )
+
+        context.insert(record)
+
+        if storedWeight > 0 {
+            profile.bodyWeightKg = storedWeight
+        }
+
+        try? context.save()
+        Haptics.success()
+        dismiss()
+    }
+
+    private func storedLength(_ displayed: Double) -> Double? {
+        guard displayed > 0 else { return nil }
+        return AppPreferences.storedHeightCm(displayed)
     }
 }
 
@@ -8537,6 +8810,8 @@ struct SettingsView: View {
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var exportSessions: [WorkoutSession]
     @Query(sort: \WorkoutTemplate.createdAt, order: .reverse) private var exportTemplates: [WorkoutTemplate]
     @Query private var exportProfiles: [UserProfile]
+    @Query(sort: \BodyMeasurement.date, order: .reverse) private var exportBodyMeasurements: [BodyMeasurement]
+    @ObservedObject private var heartRateMonitor = HeartRateMonitor.shared
 
     @AppStorage("appLanguage") private var appLanguage = "en"
     @AppStorage("measurementSystem") private var measurementSystem = "metric"
@@ -8550,6 +8825,11 @@ struct SettingsView: View {
     @AppStorage("defaultRestSeconds") private var defaultRestSeconds = 90
     @AppStorage("autoRestTimer") private var autoRestTimer = true
     @AppStorage("autoCollapseCompleted") private var autoCollapseCompleted = true
+    @AppStorage("restNotifications") private var restNotifications = true
+    @AppStorage("countdownHaptics") private var countdownHaptics = true
+    @AppStorage("compactWorkoutMode") private var compactWorkoutMode = false
+    @AppStorage("highContrastWorkout") private var highContrastWorkout = false
+    @AppStorage("progressionRule") private var progressionRule = "double"
     @AppStorage("progressionStepKg") private var progressionStepKg = 2.5
     @AppStorage("activeGymID") private var activeGymID = GymProfileStore.defaultID
     @AppStorage("separateRecordsByGym") private var separateRecordsByGym = true
@@ -8732,27 +9012,103 @@ struct SettingsView: View {
 
                     Toggle(L10n.text("Show previous sets", "Vorige sets tonen"), isOn: $showPreviousSets)
                     Toggle(L10n.text("Auto-collapse completed exercises", "Voltooide oefeningen automatisch inklappen"), isOn: $autoCollapseCompleted)
+                    Toggle(L10n.text("Compact workout layout", "Compacte trainingsweergave"), isOn: $compactWorkoutMode)
+                    Toggle(L10n.text("High-contrast workout cards", "Trainingskaarten met hoog contrast"), isOn: $highContrastWorkout)
                     Toggle(L10n.text("Automatic rest timer", "Automatische rusttimer"), isOn: $autoRestTimer)
 
                     if autoRestTimer {
-
                         Stepper(
                             "\(L10n.text("Default rest", "Standaard rust")): \(defaultRestSeconds)s",
                             value: $defaultRestSeconds,
                             in: 15...600,
                             step: 15
                         )
+
+                        Toggle(
+                            L10n.text("Rest-finished notification + sound", "Melding + geluid wanneer rust voorbij is"),
+                            isOn: $restNotifications
+                        )
+                        .onChange(of: restNotifications) { _, enabled in
+                            if enabled {
+                                RestNotificationManager.shared.requestAuthorization()
+                            } else {
+                                RestNotificationManager.shared.cancel()
+                            }
+                        }
+
+                        Toggle(
+                            L10n.text("3-second countdown haptics", "Haptische aftelling van 3 seconden"),
+                            isOn: $countdownHaptics
+                        )
                     }
 
-                    Stepper(
-                        "\(L10n.text("Progression step", "Progressiestap")): \(AppPreferences.displayWeight(progressionStepKg).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)",
-                        value: $progressionStepKg,
-                        in: 0.25...20,
-                        step: 0.25
-                    )
+                    Picker(
+                        L10n.text("Progression rule", "Progressieregel"),
+                        selection: $progressionRule
+                    ) {
+                        Text(L10n.text("Double progression", "Dubbele progressie")).tag("double")
+                        Text(L10n.text("Fixed increment", "Vaste verhoging")).tag("fixed")
+                        Text(L10n.text("Suggestions off", "Suggesties uit")).tag("off")
+                    }
+
+                    if progressionRule != "off" {
+                        Stepper(
+                            "\(L10n.text("Progression step", "Progressiestap")): \(AppPreferences.displayWeight(progressionStepKg).formatted(.number.precision(.fractionLength(0...2)))) \(AppPreferences.weightLabel)",
+                            value: $progressionStepKg,
+                            in: 0.25...20,
+                            step: 0.25
+                        )
+                    }
 
                     Toggle(L10n.text("Keep screen awake during workout", "Scherm aanhouden tijdens training"), isOn: $keepScreenAwake)
                     Toggle(L10n.text("Haptic feedback", "Haptische feedback"), isOn: $hapticsEnabled)
+                }
+
+                Section(L10n.text("Heart rate", "Hartslag")) {
+                    HStack {
+                        Label(
+                            heartRateMonitor.isConnected
+                                ? (heartRateMonitor.sensorName ?? L10n.text("Connected sensor", "Verbonden sensor"))
+                                : L10n.text("Bluetooth HR sensor", "Bluetooth-hartslagsensor"),
+                            systemImage: heartRateMonitor.isConnected ? "heart.circle.fill" : "heart.circle"
+                        )
+                        .foregroundStyle(heartRateMonitor.isConnected ? RFTheme.success : .primary)
+
+                        Spacer()
+
+                        if let bpm = heartRateMonitor.bpm {
+                            Text("\(bpm) bpm")
+                                .font(.headline)
+                                .foregroundStyle(.red)
+                        }
+                    }
+
+                    if heartRateMonitor.isConnected {
+                        Button(role: .destructive) {
+                            heartRateMonitor.disconnect()
+                        } label: {
+                            Label(L10n.text("Disconnect sensor", "Sensor loskoppelen"), systemImage: "xmark.circle")
+                        }
+                    } else {
+                        Button {
+                            heartRateMonitor.startScanning()
+                        } label: {
+                            Label(
+                                heartRateMonitor.isScanning
+                                    ? L10n.text("Scanning…", "Zoeken…")
+                                    : L10n.text("Find heart-rate sensor", "Zoek hartslagsensor"),
+                                systemImage: "dot.radiowaves.left.and.right"
+                            )
+                        }
+                        .disabled(heartRateMonitor.isScanning)
+                    }
+
+                    Text(L10n.text(
+                        "Supports standard Bluetooth Heart Rate Service sensors. When connected, live BPM appears in the workout and can be copied into cardio intervals.",
+                        "Ondersteunt standaard Bluetooth Heart Rate Service-sensoren. Na verbinden verschijnt live BPM in de training en kan deze naar cardio-intervallen worden gekopieerd."
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
 
                 Section(L10n.text("Tools", "Hulpmiddelen")) {
@@ -8770,8 +9126,8 @@ struct SettingsView: View {
                     )
                     Label(
                         L10n.text(
-                            "0.2.0 includes the redesigned workout UI, cardio metrics, collapsible exercise cards and the improved rest timer.",
-                            "0.2.0 bevat de vernieuwde trainingsinterface, cardiometingen, inklapbare oefenkaarten en de verbeterde rusttimer."
+                            "0.2.1 includes the redesigned workout UI, cardio metrics, collapsible exercise cards and the improved rest timer.",
+                            "0.2.1 bevat de vernieuwde trainingsinterface, cardiometingen, inklapbare oefenkaarten en de verbeterde rusttimer."
                         ),
                         systemImage: "sparkles"
                     )
@@ -8917,6 +9273,20 @@ struct SettingsView: View {
             )
         }
 
+        let bodyMeasurements = exportBodyMeasurements.map {
+            BackupBodyMeasurement(
+                id: $0.id,
+                date: $0.date,
+                bodyWeightKg: $0.bodyWeightKg,
+                bodyFatPercent: $0.bodyFatPercent,
+                waistCm: $0.waistCm,
+                chestCm: $0.chestCm,
+                armCm: $0.armCm,
+                thighCm: $0.thighCm,
+                hipCm: $0.hipCm
+            )
+        }
+
         let programDays: [String: ProgramDay] = {
             guard let data = UserDefaults.standard.data(forKey: "repforge.program.customDays.v1"),
                   let decoded = try? JSONDecoder().decode([String: ProgramDay].self, from: data) else {
@@ -8938,6 +9308,11 @@ struct SettingsView: View {
             defaultRestSeconds: defaultRestSeconds,
             autoRestTimer: autoRestTimer,
             autoCollapseCompleted: autoCollapseCompleted,
+            restNotifications: restNotifications,
+            countdownHaptics: countdownHaptics,
+            compactWorkoutMode: compactWorkoutMode,
+            highContrastWorkout: highContrastWorkout,
+            progressionRule: progressionRule,
             progressionStepKg: progressionStepKg,
             activeGymID: activeGymID,
             separateRecordsByGym: separateRecordsByGym,
@@ -8951,6 +9326,7 @@ struct SettingsView: View {
             templates: templates,
             sessions: sessions,
             profiles: profiles,
+            bodyMeasurements: bodyMeasurements,
             customExercises: CustomExerciseStore.load(),
             gyms: GymProfileStore.load(),
             scheduledWorkouts: WorkoutScheduleStore.load(),
@@ -8997,6 +9373,7 @@ struct SettingsView: View {
         for session in exportSessions { context.delete(session) }
         for template in exportTemplates { context.delete(template) }
         for profile in exportProfiles { context.delete(profile) }
+        for measurement in exportBodyMeasurements { context.delete(measurement) }
 
         for dto in payload.templates {
             let template = WorkoutTemplate(
@@ -9068,6 +9445,21 @@ struct SettingsView: View {
             context.insert(profile)
         }
 
+        for dto in payload.bodyMeasurements ?? [] {
+            let measurement = BodyMeasurement(
+                date: dto.date,
+                bodyWeightKg: dto.bodyWeightKg,
+                bodyFatPercent: dto.bodyFatPercent,
+                waistCm: dto.waistCm,
+                chestCm: dto.chestCm,
+                armCm: dto.armCm,
+                thighCm: dto.thighCm,
+                hipCm: dto.hipCm
+            )
+            measurement.id = dto.id
+            context.insert(measurement)
+        }
+
         CustomExerciseStore.save(payload.customExercises)
         GymProfileStore.save(payload.gyms)
         WorkoutScheduleStore.restore(payload.scheduledWorkouts)
@@ -9089,6 +9481,11 @@ struct SettingsView: View {
         defaultRestSeconds = payload.settings.defaultRestSeconds
         autoRestTimer = payload.settings.autoRestTimer
         autoCollapseCompleted = payload.settings.autoCollapseCompleted
+        restNotifications = payload.settings.restNotifications ?? true
+        countdownHaptics = payload.settings.countdownHaptics ?? true
+        compactWorkoutMode = payload.settings.compactWorkoutMode ?? false
+        highContrastWorkout = payload.settings.highContrastWorkout ?? false
+        progressionRule = payload.settings.progressionRule ?? "double"
         progressionStepKg = payload.settings.progressionStepKg
         activeGymID = payload.settings.activeGymID
         separateRecordsByGym = payload.settings.separateRecordsByGym
