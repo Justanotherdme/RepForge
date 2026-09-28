@@ -9133,7 +9133,7 @@ struct SettingsView: View {
 
     private var appVersionDisplay: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.6"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "13"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "14"
         return "\(version) (\(build))"
     }
 
@@ -9507,7 +9507,7 @@ struct SettingsView: View {
             }
             .fileImporter(
                 isPresented: $showStrongImporter,
-                allowedContentTypes: [.commaSeparatedText, .plainText],
+                allowedContentTypes: [.item],
                 allowsMultipleSelection: false
             ) { result in
                 importStrongCSV(result)
