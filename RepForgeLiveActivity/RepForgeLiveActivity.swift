@@ -47,26 +47,8 @@ struct RepForgeRestTimerLiveActivity: Widget {
             .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) {
-                    Image(systemName: "timer")
-                        .font(.headline.bold())
-                        .foregroundStyle(.blue)
-                }
-
                 DynamicIslandExpandedRegion(.center) {
-                    Text(context.state.exerciseName.isEmpty ? context.attributes.workoutTitle : context.state.exerciseName)
-                        .font(.subheadline.bold())
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-
-                DynamicIslandExpandedRegion(.trailing) {
-                    Text(
-                        timerInterval: context.state.endDate.addingTimeInterval(-TimeInterval(context.state.totalSeconds))...context.state.endDate,
-                        countsDown: true
-                    )
-                    .font(.subheadline.monospacedDigit().bold())
-                    .foregroundStyle(.blue)
+                    EmptyView()
                 }
             } compactLeading: {
                 ZStack {
@@ -76,23 +58,19 @@ struct RepForgeRestTimerLiveActivity: Widget {
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(.blue)
                 }
-                .frame(width: 27, height: 27)
+                .frame(width: 24, height: 24)
             } compactTrailing: {
-                Text(context.state.endDate, style: .timer)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.blue)
-                    .lineLimit(1)
-                    .fixedSize()
+                Text(
+                    timerInterval: Date()...context.state.endDate,
+                    countsDown: true
+                )
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.blue)
+                .lineLimit(1)
+                .frame(width: 44, alignment: .trailing)
             } minimal: {
-                ZStack {
-                    Circle()
-                        .stroke(Color.blue, lineWidth: 2)
-                    Image(systemName: "dumbbell.fill")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.blue)
-                }
-                .frame(width: 22, height: 22)
+                EmptyView()
             }
             .widgetURL(URL(string: "repforge://workout"))
             .keylineTint(.blue)
