@@ -3799,47 +3799,7 @@ struct ActiveWorkoutView: View {
                         )
                     }
 
-                    ForEach(visibleExercises) { log in
-                        WorkoutExerciseBlock(
-                            log: log,
-                            sessions: allSessions,
-                            gymID: GymProfileStore.sessionGymID(session),
-                            supersetPosition: supersetPosition(for: log),
-                            onSetCompleted: {
-                                startRestTimer(for: log)
-                            },
-                            onMoveUp: { moveExercise(log, delta: -1) },
-                            onMoveDown: { moveExercise(log, delta: 1) },
-                            onDuplicate: { duplicateExercise(log) },
-                            onRemoveExercise: { removeExercise(log) }
-                        )
-                        .draggable(log.id.uuidString) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "line.3.horizontal")
-                                Text(ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise")
-                                    .font(.headline)
-                            }
-                            .padding(12)
-                            .background(RFTheme.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                        }
-                        .dropDestination(for: String.self) { items, _ in
-                            guard let raw = items.first,
-                                  let sourceID = UUID(uuidString: raw) else { return false }
-                            reorderExercise(sourceID: sourceID, targetID: log.id)
-                            return true
-                        } isTargeted: { targeted in
-                            if targeted { draggingExerciseID = log.id }
-                            else if draggingExerciseID == log.id { draggingExerciseID = nil }
-                        }
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 22)
-                                .stroke(
-                                    draggingExerciseID == log.id ? RFTheme.accent : Color.clear,
-                                    lineWidth: 2
-                                )
-                        )
-                    }
+                    exerciseCards
 
                     Button {
                         pickerIDs = []
@@ -3974,6 +3934,67 @@ struct ActiveWorkoutView: View {
             .onDisappear {
                 UIApplication.shared.isIdleTimerDisabled = false
             }
+        }
+    }
+
+    @ViewBuilder
+    private var exerciseCards: some View {
+        ForEach(visibleExercises) { log in
+            exerciseCard(log)
+        }
+    }
+
+    @ViewBuilder
+    private func exerciseCard(_ log: ExerciseLog) -> some View {
+        WorkoutExerciseBlock(
+            log: log,
+            sessions: allSessions,
+            gymID: GymProfileStore.sessionGymID(session),
+            supersetPosition: supersetPosition(for: log),
+            onSetCompleted: {
+                startRestTimer(for: log)
+            },
+            onMoveUp: { moveExercise(log, delta: -1) },
+            onMoveDown: { moveExercise(log, delta: 1) },
+            onDuplicate: { duplicateExercise(log) },
+            onRemoveExercise: { removeExercise(log) }
+        )
+        .draggable(log.id.uuidString) {
+            HStack(spacing: 8) {
+                Image(systemName: "line.3.horizontal")
+                Text(ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise")
+                    .font(.headline)
+            }
+            .padding(12)
+            .background(RFTheme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+        .dropDestination(for: String.self) { items, _ in
+            handleExerciseDrop(items, targetID: log.id)
+        } isTargeted: { targeted in
+            updateDropTarget(log.id, targeted: targeted)
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(
+                    draggingExerciseID == log.id ? RFTheme.accent : Color.clear,
+                    lineWidth: 2
+                )
+        )
+    }
+
+    private func handleExerciseDrop(_ items: [String], targetID: UUID) -> Bool {
+        guard let raw = items.first,
+              let sourceID = UUID(uuidString: raw) else { return false }
+        reorderExercise(sourceID: sourceID, targetID: targetID)
+        return true
+    }
+
+    private func updateDropTarget(_ id: UUID, targeted: Bool) {
+        if targeted {
+            draggingExerciseID = id
+        } else if draggingExerciseID == id {
+            draggingExerciseID = nil
         }
     }
 
