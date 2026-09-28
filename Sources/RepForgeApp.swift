@@ -3306,13 +3306,16 @@ struct TemplateCard: View {
 
                 Spacer()
 
-                Text("\(exerciseNames.count) \(L10n.text("exercises", "oefeningen"))")
-                    .font(.caption2.bold())
+                Label("\(exerciseNames.count)", systemImage: "list.bullet")
+                    .font(.caption.bold())
                     .foregroundStyle(RFTheme.muted)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
                     .background(RFTheme.field)
                     .clipShape(Capsule())
+                    .accessibilityLabel("\(exerciseNames.count) \(L10n.text("exercises", "oefeningen"))")
 
                 Menu {
                     Button(action: onEdit) {
@@ -3699,10 +3702,15 @@ struct ActiveWorkoutView: View {
     @State private var restExerciseName = ""
     @State private var restEndDate: Date?
     @State private var showWorkoutNote = false
+    @State private var draggingExerciseID: UUID?
+    @State private var focusMode = false
+    @ObservedObject private var heartRateMonitor = HeartRateMonitor.shared
 
     @AppStorage("keepScreenAwake") private var keepScreenAwake = true
     @AppStorage("autoRestTimer") private var autoRestTimer = true
     @AppStorage("defaultRestSeconds") private var defaultRestSeconds = 90
+    @AppStorage("compactWorkoutMode") private var compactWorkoutMode = false
+    @AppStorage("countdownHaptics") private var countdownHaptics = true
 
     private let restTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -3722,10 +3730,18 @@ struct ActiveWorkoutView: View {
         totalEntries == 0 ? 0 : Double(completedEntries) / Double(totalEntries)
     }
 
+    private var visibleExercises: [ExerciseLog] {
+        guard focusMode else { return orderedExercises }
+        if let next = orderedExercises.first(where: { !$0.sets.allSatisfy(\.completed) }) {
+            return [next]
+        }
+        return orderedExercises.last.map { [$0] } ?? []
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: compactWorkoutMode ? 10 : 18) {
                     workoutHero
 
                     if showWorkoutNote {
@@ -3762,11 +3778,12 @@ struct ActiveWorkoutView: View {
                         )
                     }
 
-                    ForEach(orderedExercises) { log in
+                    ForEach(visibleExercises) { log in
                         WorkoutExerciseBlock(
                             log: log,
                             sessions: allSessions,
                             gymID: GymProfileStore.sessionGymID(session),
+                            supersetPosition: supersetPosition(for: log),
                             onSetCompleted: {
                                 startRestTimer(for: log)
                             },
@@ -3774,6 +3791,32 @@ struct ActiveWorkoutView: View {
                             onMoveDown: { moveExercise(log, delta: 1) },
                             onDuplicate: { duplicateExercise(log) },
                             onRemoveExercise: { removeExercise(log) }
+                        )
+                        .draggable(log.id.uuidString) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "line.3.horizontal")
+                                Text(ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise")
+                                    .font(.headline)
+                            }
+                            .padding(12)
+                            .background(RFTheme.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        }
+                        .dropDestination(for: String.self) { items, _ in
+                            guard let raw = items.first,
+                                  let sourceID = UUID(uuidString: raw) else { return false }
+                            reorderExercise(sourceID: sourceID, targetID: log.id)
+                            return true
+                        } isTargeted: { targeted in
+                            if targeted { draggingExerciseID = log.id }
+                            else if draggingExerciseID == log.id { draggingExerciseID = nil }
+                        }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22)
+                                .stroke(
+                                    draggingExerciseID == log.id ? RFTheme.accent : Color.clear,
+                                    lineWidth: 2
+                                )
                         )
                     }
 
@@ -3839,7 +3882,8 @@ struct ActiveWorkoutView: View {
                             RestTimerCompactChip(
                                 remaining: restRemaining,
                                 onExpand: { restCollapsed = false },
-                                onAdd30: { adjustRest(by: 30) },
+                                onSubtract15: { adjustRest(by: -15) },
+                                onAdd15: { adjustRest(by: 15) },
                                 onSkip: { stopRest() }
                             )
                         } else {
@@ -3847,7 +3891,8 @@ struct ActiveWorkoutView: View {
                                 remaining: restRemaining,
                                 original: max(restOriginal, 1),
                                 exerciseName: restExerciseName,
-                                onAdd30: { adjustRest(by: 30) },
+                                onAdjust: { adjustRest(by: $0) },
+                                onReset: { resetRest() },
                                 onMinimize: { restCollapsed = true },
                                 onSkip: { stopRest() }
                             )
@@ -3861,6 +3906,10 @@ struct ActiveWorkoutView: View {
                 guard let end = restEndDate else { return }
                 let remaining = max(0, Int(ceil(end.timeIntervalSinceNow)))
                 restRemaining = remaining
+
+                if countdownHaptics && (1...3).contains(remaining) {
+                    Haptics.light()
+                }
 
                 if remaining == 0 {
                     restEndDate = nil
@@ -3955,6 +4004,13 @@ struct ActiveWorkoutView: View {
                     text: "\(completedEntries)/\(totalEntries)"
                 )
 
+                if let bpm = heartRateMonitor.bpm {
+                    WorkoutMetricPill(
+                        icon: "heart.fill",
+                        text: "\(bpm) bpm"
+                    )
+                }
+
                 if session.totalCardioDistanceKm > 0 {
                     WorkoutMetricPill(
                         icon: "figure.run",
@@ -3963,6 +4019,24 @@ struct ActiveWorkoutView: View {
                 }
 
                 Spacer()
+
+                Button {
+                    withAnimation(.snappy) {
+                        focusMode.toggle()
+                    }
+                } label: {
+                    Image(systemName: focusMode ? "scope" : "rectangle.stack.fill")
+                        .font(.caption.bold())
+                        .padding(8)
+                        .background(focusMode ? RFTheme.accent.opacity(0.18) : RFTheme.field.opacity(0.75))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    focusMode
+                        ? L10n.text("Show all exercises", "Toon alle oefeningen")
+                        : L10n.text("Focus on next exercise", "Focus op volgende oefening")
+                )
             }
 
             VStack(spacing: 7) {
@@ -4031,7 +4105,7 @@ struct ActiveWorkoutView: View {
         restCollapsed = false
         restExerciseName = exerciseName
         restEndDate = Date().addingTimeInterval(TimeInterval(seconds))
-
+        RestNotificationManager.shared.schedule(seconds: seconds, exerciseName: exerciseName)
     }
 
     private func adjustRest(by seconds: Int) {
@@ -4040,6 +4114,16 @@ struct ActiveWorkoutView: View {
         restEndDate = newEnd
         restRemaining = max(0, Int(ceil(newEnd.timeIntervalSinceNow)))
         restOriginal = max(restOriginal, restRemaining)
+        RestNotificationManager.shared.schedule(seconds: restRemaining, exerciseName: restExerciseName)
+        Haptics.light()
+    }
+
+    private func resetRest() {
+        guard defaultRestSeconds > 0 else { return }
+        restOriginal = defaultRestSeconds
+        restRemaining = defaultRestSeconds
+        restEndDate = Date().addingTimeInterval(TimeInterval(defaultRestSeconds))
+        RestNotificationManager.shared.schedule(seconds: defaultRestSeconds, exerciseName: restExerciseName)
         Haptics.light()
     }
 
@@ -4048,6 +4132,7 @@ struct ActiveWorkoutView: View {
         restOriginal = 0
         restEndDate = nil
         restExerciseName = ""
+        RestNotificationManager.shared.cancel()
         Haptics.light()
     }
 
@@ -4072,6 +4157,39 @@ struct ActiveWorkoutView: View {
         }
 
         pickerIDs = []
+        try? context.save()
+    }
+
+    private func supersetPosition(for log: ExerciseLog) -> String? {
+        guard let group = log.supersetGroup?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !group.isEmpty else { return nil }
+
+        let members = orderedExercises.filter {
+            $0.supersetGroup?.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(group) == .orderedSame
+        }
+
+        guard members.count > 1,
+              let index = members.firstIndex(where: { $0.id == log.id }) else { return nil }
+
+        return "\(group.uppercased())\(index + 1)"
+    }
+
+    private func reorderExercise(sourceID: UUID, targetID: UUID) {
+        var ordered = orderedExercises
+        guard let source = ordered.firstIndex(where: { $0.id == sourceID }),
+              let target = ordered.firstIndex(where: { $0.id == targetID }),
+              source != target else { return }
+
+        let moved = ordered.remove(at: source)
+        ordered.insert(moved, at: target)
+
+        for (index, exercise) in ordered.enumerated() {
+            exercise.order = index
+        }
+
+        draggingExerciseID = nil
+        Haptics.light()
         try? context.save()
     }
 
@@ -4262,6 +4380,7 @@ struct WorkoutExerciseBlock: View {
     @Bindable var log: ExerciseLog
     let sessions: [WorkoutSession]
     let gymID: String
+    let supersetPosition: String?
     let onSetCompleted: () -> Void
     let onMoveUp: () -> Void
     let onMoveDown: () -> Void
@@ -4272,6 +4391,7 @@ struct WorkoutExerciseBlock: View {
     @State private var showOptions = false
     @State private var isCollapsed = false
     @AppStorage("autoCollapseCompleted") private var autoCollapseCompleted = true
+    @AppStorage("compactWorkoutMode") private var compactWorkoutMode = false
 
     private var exercise: ExerciseDefinition? { ExerciseCatalog.find(log.exerciseID) }
     private var isCardio: Bool { exercise?.movement == "cardio" }
@@ -4357,8 +4477,8 @@ struct WorkoutExerciseBlock: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(RFTheme.accent)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
+                .padding(.horizontal, compactWorkoutMode ? 10 : 16)
+                .padding(.bottom, compactWorkoutMode ? 10 : 16)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -4375,8 +4495,21 @@ struct WorkoutExerciseBlock: View {
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay(
             RoundedRectangle(cornerRadius: 22)
-                .stroke(allCompleted ? RFTheme.success.opacity(0.32) : RFTheme.cardBorder)
+                .stroke(
+                    supersetPosition != nil
+                        ? RFTheme.accent.opacity(0.55)
+                        : (allCompleted ? RFTheme.success.opacity(0.32) : RFTheme.cardBorder),
+                    lineWidth: supersetPosition != nil ? 1.5 : 1
+                )
         )
+        .overlay(alignment: .leading) {
+            if supersetPosition != nil {
+                Capsule()
+                    .fill(RFTheme.accent)
+                    .frame(width: 4)
+                    .padding(.vertical, 14)
+            }
+        }
         .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
         .sheet(isPresented: $showOptions) {
             ExerciseLogOptionsView(log: log)
@@ -4434,13 +4567,13 @@ struct WorkoutExerciseBlock: View {
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
 
-                            if let group = log.supersetGroup, !group.isEmpty {
-                                Text("SS \(group)")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(RFTheme.accent)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 3)
-                                    .background(RFTheme.accent.opacity(0.12))
+                            if let supersetPosition {
+                                Text(supersetPosition)
+                                    .font(.system(size: 10, weight: .black))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 4)
+                                    .background(RFTheme.accent)
                                     .clipShape(Capsule())
                             }
                         }
@@ -4567,7 +4700,7 @@ struct WorkoutExerciseBlock: View {
                     .clipShape(Circle())
             }
         }
-        .padding(14)
+        .padding(compactWorkoutMode ? 10 : 14)
     }
 
     private var strengthContent: some View {
@@ -4782,6 +4915,7 @@ private func cardioDurationText(_ seconds: Double) -> String {
 
 struct CardioIntervalRow: View {
     @Environment(\.modelContext) private var context
+    @ObservedObject private var heartRateMonitor = HeartRateMonitor.shared
     @Bindable var set: WorkoutSet
     let canDelete: Bool
     let onCompleted: (Bool) -> Void
@@ -4811,6 +4945,20 @@ struct CardioIntervalRow: View {
                         Label(pace, systemImage: "speedometer")
                             .font(.caption.bold())
                             .foregroundStyle(RFTheme.muted)
+                    }
+
+                    if let bpm = heartRateMonitor.bpm {
+                        Button {
+                            set.averageHeartRate = bpm
+                            try? context.save()
+                            Haptics.light()
+                        } label: {
+                            Label("\(bpm)", systemImage: "heart.fill")
+                                .font(.caption.bold())
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+                        .accessibilityLabel(L10n.text("Use current heart rate", "Gebruik huidige hartslag"))
                     }
 
                     Button {
@@ -5024,6 +5172,8 @@ struct SwipeDeleteContainer<Content: View>: View {
             }
 
             content
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RFTheme.surface.opacity(0.001))
                 .offset(x: dragOffset)
                 .contentShape(Rectangle())
                 .simultaneousGesture(
@@ -5069,7 +5219,13 @@ struct SwipeDeleteContainer<Content: View>: View {
                         }
                 )
         }
+        .frame(maxWidth: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: 14))
+        .onAppear {
+            dragOffset = 0
+            restingOffset = 0
+            dragAxis = nil
+        }
     }
 }
 
