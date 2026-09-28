@@ -2612,7 +2612,7 @@ struct StartWorkoutView: View {
 
                             Spacer()
 
-                            Text("0.2.5")
+                            Text("0.2.6")
                                 .font(.caption.bold())
                                 .foregroundStyle(RFTheme.accent)
                                 .padding(.horizontal, 10)
@@ -9126,12 +9126,14 @@ struct SettingsView: View {
 
     @State private var showBackupExporter = false
     @State private var showBackupImporter = false
+    @State private var showStrongImporter = false
     @State private var backupDocument = RepForgeBackupDocument()
     @State private var backupMessage: String?
+    @State private var strongImportMessage: String?
 
     private var appVersionDisplay: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.5"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "12"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.6"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "13"
         return "\(version) (\(build))"
     }
 
@@ -9416,8 +9418,8 @@ struct SettingsView: View {
                     )
                     Label(
                         L10n.text(
-                            "0.2.4 adds 9 new themes plus Spanish, German and French interface translations.",
-                            "0.2.4 voegt 9 nieuwe thema's toe plus Spaanse, Duitse en Franse interfacevertalingen."
+                            "0.2.6 adds direct Strong CSV migration for workout history.",
+                            "0.2.6 voegt directe Strong CSV-migratie voor trainingsgeschiedenis toe."
                         ),
                         systemImage: "sparkles"
                     )
@@ -9440,6 +9442,24 @@ struct SettingsView: View {
                     ShareLink(item: templateBackupText) {
                         Label(L10n.text("Export templates", "Templates exporteren"), systemImage: "doc.on.doc")
                     }
+
+                    Divider()
+
+                    Button {
+                        showStrongImporter = true
+                    } label: {
+                        Label(
+                            L10n.text("Import from Strong CSV", "Importeer vanuit Strong CSV"),
+                            systemImage: "arrow.down.doc.fill"
+                        )
+                    }
+
+                    Text(L10n.text(
+                        "Migrates Strong workout history, completed sets, weights, reps, RPE, notes and rest timers. Missing exercises are created automatically. Re-importing the same workout date and name is skipped.",
+                        "Migreert Strong-trainingsgeschiedenis, voltooide sets, gewichten, herhalingen, RPE, notities en rusttijden. Ontbrekende oefeningen worden automatisch aangemaakt. Dezelfde trainingsdatum en naam worden bij opnieuw importeren overgeslagen."
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                     Divider()
 
@@ -9485,6 +9505,24 @@ struct SettingsView: View {
             ) { result in
                 restoreBackup(result)
             }
+            .fileImporter(
+                isPresented: $showStrongImporter,
+                allowedContentTypes: [.commaSeparatedText, .plainText],
+                allowsMultipleSelection: false
+            ) { result in
+                importStrongCSV(result)
+            }
+            .alert(
+                L10n.text("Strong Import", "Strong-import"),
+                isPresented: Binding(
+                    get: { strongImportMessage != nil },
+                    set: { if !$0 { strongImportMessage = nil } }
+                )
+            ) {
+                Button(L10n.done) { strongImportMessage = nil }
+            } message: {
+                Text(strongImportMessage ?? "")
+            }
             .alert(
                 L10n.text("Backup", "Back-up"),
                 isPresented: Binding(
@@ -9496,6 +9534,59 @@ struct SettingsView: View {
             } message: {
                 Text(backupMessage ?? "")
             }
+        }
+    }
+
+    private func importStrongCSV(_ result: Result<[URL], Error>) {
+        do {
+            let urls = try result.get()
+            guard let url = urls.first else { return }
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing { url.stopAccessingSecurityScopedResource() }
+            }
+
+            let data = try Data(contentsOf: url)
+            let summary = try StrongCSVImporter.importCSV(
+                data: data,
+                into: context,
+                gymID: activeGymID,
+                usesImperialUnits: measurementSystem == "imperial"
+            )
+
+            var message = L10n.text(
+                "Imported \(summary.workoutsImported) workouts and \(summary.setsImported) completed sets from Strong.",
+                "\(summary.workoutsImported) trainingen en \(summary.setsImported) voltooide sets uit Strong geïmporteerd."
+            )
+
+            if summary.duplicateWorkoutsSkipped > 0 {
+                message += "\n" + L10n.text(
+                    "Skipped \(summary.duplicateWorkoutsSkipped) workouts that were already in RepForge.",
+                    "\(summary.duplicateWorkoutsSkipped) trainingen overgeslagen die al in RepForge stonden."
+                )
+            }
+
+            if !summary.customExercisesCreated.isEmpty {
+                message += "\n" + L10n.text(
+                    "Created \(summary.customExercisesCreated.count) missing exercises: \(summary.customExercisesCreated.joined(separator: ", ")).",
+                    "\(summary.customExercisesCreated.count) ontbrekende oefeningen aangemaakt: \(summary.customExercisesCreated.joined(separator: ", "))."
+                )
+            }
+
+            if summary.rowsSkipped > 0 {
+                message += "\n" + L10n.text(
+                    "Skipped \(summary.rowsSkipped) rows that could not be imported.",
+                    "\(summary.rowsSkipped) rijen overgeslagen die niet konden worden geïmporteerd."
+                )
+            }
+
+            strongImportMessage = message
+            Haptics.success()
+        } catch {
+            strongImportMessage = L10n.text(
+                "Could not import Strong CSV: \(error.localizedDescription)",
+                "Strong CSV kon niet worden geïmporteerd: \(error.localizedDescription)"
+            )
         }
     }
 
