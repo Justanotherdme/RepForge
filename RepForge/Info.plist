@@ -31,6 +31,8 @@
             </array>
         </dict>
     </array>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>RepForge uses Bluetooth to display live heart rate from compatible fitness sensors during workouts.</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>UILaunchScreen</key>
