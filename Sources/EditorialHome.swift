@@ -146,8 +146,20 @@ struct EFHome: View {
                 .foregroundStyle(.white)
                 .minimumScaleFactor(0.75)
                 .lineLimit(1)
-            EFAction(title: L10n.text("Start workout", "Start training"), symbol: "arrow.up.right", action: start)
-                .colorMultiply(.white)
+            Button(action: start) {
+                HStack {
+                    Text(L10n.text("START WORKOUT", "START TRAINING"))
+                        .font(.system(size: 13, weight: .heavy))
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.headline.weight(.heavy))
+                }
+                .foregroundStyle(EF.ink)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 57)
+                .background(EF.white)
+            }
+            .buttonStyle(EFPressStyle())
             HStack(spacing: 0) {
                 heroStat("\(stats.weeklyStreak)", "WEEK STREAK")
                 Rectangle().fill(Color.white.opacity(0.25)).frame(width: 1, height: 34)
