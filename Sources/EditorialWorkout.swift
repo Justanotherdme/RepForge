@@ -167,7 +167,7 @@ struct EFWorkout: View {
                 }
             }
             .sheet(isPresented: $chooseExercises, onDismiss: appendSelected) {
-                ExercisePickerView(selectedIDs: $pickerIDs)
+                EFExerciseSelector(selectedIDs: $pickerIDs)
             }
             .sheet(isPresented: $showAdvanced) {
                 ActiveWorkoutView(session: session)
