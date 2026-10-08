@@ -333,6 +333,7 @@ struct EFRestStrip: View {
                         .frame(width: proxy.size.width * min(1, Double(left) / Double(max(1, duration))),
                                height: 3)
                 }
+                .allowsHitTesting(false)
             }
         }
     }
