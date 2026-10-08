@@ -205,6 +205,12 @@ struct EFWorkout: View {
                     showSummary = false
                 }
             }
+            .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+                if let restEnd, restEnd <= Date() {
+                    stopRest()
+                    Haptics.success()
+                }
+            }
             .onAppear { UIApplication.shared.isIdleTimerDisabled = keepScreenAwake }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         }
