@@ -46,13 +46,16 @@ struct EFAtlas: View {
     }
     private var breakdown: [(name: String, amount: Double, description: String)] {
         if recoveryMode {
-            return recovery.map { ($0.muscle, 1 - $0.recovery,
-                                   "\(Int($0.recovery * 100))% EST. RECOVERY") }
-                .sorted { $0.amount > $1.amount }
+            return recovery.map {
+                (name: $0.muscle, amount: 1 - $0.recovery,
+                 description: "\(Int($0.recovery * 100))% EST. RECOVERY")
+            }.sorted { $0.amount > $1.amount }
         }
         return volume.map {
-            ($0.muscle, $0.sets,
-             $0.sets.formatted(.number.precision(.fractionLength(0...1))) + " EFFECTIVE SETS")
+            (name: $0.muscle, amount: $0.sets,
+             description: $0.sets.formatted(
+                .number.precision(.fractionLength(0...1))
+             ) + " EFFECTIVE SETS")
         }.sorted { $0.amount > $1.amount }
     }
 
