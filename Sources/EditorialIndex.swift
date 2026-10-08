@@ -42,7 +42,7 @@ struct EFIndex: View {
                     }
                     .padding(.bottom, 38)
 
-                    EFTitle(lines: ["FIND YOUR", "MOVE."])
+                    EFTitle(lines: L10n.text("FIND YOUR|MOVE.", "VIND JOUW|OEFENING.").components(separatedBy: "|"))
                     TextField(L10n.text("Search by machine or exercise ↗",
                                         "Zoek op apparaat of oefening ↗"), text: $query)
                         .font(.system(size: 20, weight: .semibold))
