@@ -25,9 +25,10 @@ struct EFPlans: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("THE ")
-                                .foregroundStyle(EF.ink) +
-                            Text("PLAYBOOK.").foregroundStyle(EF.cobalt)
+                            HStack(spacing: 0) {
+                                Text("THE ").foregroundStyle(EF.ink)
+                                Text("PLAYBOOK.").foregroundStyle(EF.cobalt)
+                            }
                             EFEyebrow(value: "BUILT FOR CONSISTENCY.")
                         }
                         .font(.system(size: 16, weight: .black))
