@@ -38,7 +38,7 @@ struct EFPlans: View {
                             .foregroundStyle(EF.cobalt)
                     }
                     .padding(.bottom, 34)
-                    EFTitle(lines: ["TRAIN WITH", "INTENT."], highlight: 1)
+                    EFTitle(lines: L10n.text("TRAIN WITH|INTENT.", "TRAIN MET|EEN DOEL.").components(separatedBy: "|"), highlight: 1)
                     Text(L10n.text("Real plans. Clear progression. Time you can actually commit.",
                                     "Duidelijke schema's, zichtbare vooruitgang, haalbare trainingstijden."))
                         .font(.subheadline).foregroundStyle(EF.faint)
