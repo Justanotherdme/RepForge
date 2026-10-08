@@ -1,0 +1,16 @@
+name: Editorial source validation
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  swift-syntax:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse every Swift source with Swift 5 grammar
+        run: |
+          set -o pipefail
+          swiftc -frontend -parse -swift-version 5 $(find Sources Shared RepForgeLiveActivity -name '*.swift' -print)
