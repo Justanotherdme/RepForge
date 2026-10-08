@@ -19,7 +19,7 @@ struct EFProfile: View {
                 LazyVStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 23) {
                         EFEyebrow(value: "04 / ATHLETE FILE", light: true)
-                        EFTitle(lines: ["YOUR", "STORY."], highlight: -1, inverted: true)
+                        EFTitle(lines: L10n.text("YOUR|STORY.", "JOUW|VERHAAL.").components(separatedBy: "|"), highlight: -1, inverted: true)
                         Text(L10n.text("Built, not bought.", "Verdiend, niet gekocht."))
                             .font(.subheadline).foregroundStyle(EF.ice)
                         HStack(spacing: 23) {
