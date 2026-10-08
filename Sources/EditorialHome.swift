@@ -45,7 +45,7 @@ struct EFHome: View {
                 .padding(.bottom, 38)
 
                 EFEyebrow(value: Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-                EFTitle(lines: ["MAKE", "IT COUNT."])
+                EFTitle(lines: L10n.text("MAKE|IT COUNT.", "MAAK HET|WAAR.").components(separatedBy: "|"))
                     .padding(.top, 14)
                 Text(L10n.text("Your next workout should be the easiest decision of your day.",
                                "Je volgende training moet de makkelijkste keuze van vandaag zijn."))
