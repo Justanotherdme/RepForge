@@ -1142,9 +1142,17 @@ Smith Machine Leg Press|Quadriceps|Machine|squat
         combinedBuiltIn + CustomExerciseStore.load().map { $0.definition }
     }
 
+    private static let builtInLookup: [String: ExerciseDefinition] = {
+        var index = Dictionary(uniqueKeysWithValues: combinedBuiltIn.map { ($0.id, $0) })
+        for exercise in legacyBuiltIn where index[exercise.id] == nil {
+            index[exercise.id] = exercise
+        }
+        return index
+    }()
+
     static func find(_ id: String) -> ExerciseDefinition? {
-        if let visible = all.first(where: { $0.id == id }) { return visible }
-        return legacyBuiltIn.first(where: { $0.id == id })
+        if let builtIn = builtInLookup[id] { return builtIn }
+        return CustomExerciseStore.load().first(where: { $0.id == id })?.definition
     }
 
     static func findByName(_ name: String) -> ExerciseDefinition? {
@@ -4263,8 +4271,8 @@ struct ActiveWorkoutView: View {
                             .stroke(RFTheme.cardBorder)
                     )
                 }
-                .padding()
-                .padding(.bottom, restRemaining > 0 ? 82 : 16)
+                .padding(RFLayout.pagePadding)
+                .padding(.bottom, restRemaining > 0 ? 14 : 12)
             }
             .scrollDismissesKeyboard(.interactively)
             .background(
@@ -4286,42 +4294,30 @@ struct ActiveWorkoutView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                if restRemaining > 0 {
-                    Group {
-                        if restCollapsed {
-                            RestTimerCompactChip(
-                                remaining: restRemaining,
-                                onExpand: { restCollapsed = false },
-                                onSubtract15: { adjustRest(by: -15) },
-                                onAdd15: { adjustRest(by: 15) },
-                                onSkip: { stopRest() }
-                            )
-                        } else {
-                            RestTimerBanner(
-                                remaining: restRemaining,
-                                original: max(restOriginal, 1),
-                                exerciseName: restExerciseName,
-                                onAdjust: { adjustRest(by: $0) },
-                                onReset: { resetRest() },
-                                onMinimize: { restCollapsed = true },
-                                onSkip: { stopRest() }
-                            )
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.bottom, 4)
+                if restRemaining > 0, let endDate = restEndDate {
+                    RestTimerDock(
+                        endDate: endDate,
+                        exerciseName: restExerciseName,
+                        totalSeconds: max(restOriginal, 1),
+                        onAdjust: { adjustRest(by: $0) },
+                        onReset: { resetRest() },
+                        onSkip: { stopRest() }
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 5)
                 }
             }
             .onReceive(restTicker) { _ in
                 guard let end = restEndDate else { return }
                 let remaining = max(0, Int(ceil(end.timeIntervalSinceNow)))
-                restRemaining = remaining
-
+                // Updating @State once per second used to invalidate the entire
+                // exercise list. TimelineView now owns the visible countdown.
                 if countdownHaptics && (1...3).contains(remaining) {
                     Haptics.light()
                 }
 
                 if remaining == 0 {
+                    restRemaining = 0
                     restEndDate = nil
                     RestTimerLiveActivityManager.end()
                     Haptics.success()
@@ -4389,28 +4385,6 @@ struct ActiveWorkoutView: View {
             onDuplicate: { duplicateExercise(log) },
             onRemoveExercise: { removeExercise(log) }
         )
-        .draggable(log.id.uuidString) {
-            HStack(spacing: 8) {
-                Image(systemName: "line.3.horizontal")
-                Text(ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise")
-                    .font(.headline)
-            }
-            .padding(12)
-            .background(RFTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-        }
-        .dropDestination(for: String.self) { items, _ in
-            handleExerciseDrop(items, targetID: log.id)
-        } isTargeted: { targeted in
-            updateDropTarget(log.id, targeted: targeted)
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .stroke(
-                    draggingExerciseID == log.id ? RFTheme.accent : Color.clear,
-                    lineWidth: 2
-                )
-        )
     }
 
     private func handleExerciseDrop(_ items: [String], targetID: UUID) -> Bool {
@@ -4429,7 +4403,7 @@ struct ActiveWorkoutView: View {
     }
 
     private var workoutHero: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 13) {
             HStack(alignment: .top, spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16)
@@ -4548,14 +4522,11 @@ struct ActiveWorkoutView: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(16)
-        .background(RFTheme.heroGradient)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .padding(15)
+        .background(RFTheme.surface, in: RoundedRectangle(cornerRadius: 19))
         .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .stroke(RFTheme.cardBorder)
+            RoundedRectangle(cornerRadius: 19).stroke(RFTheme.cardBorder)
         )
-        .shadow(color: Color.black.opacity(0.12), radius: 14, y: 7)
     }
 
     private func finishWorkout() {
@@ -5007,31 +4978,32 @@ struct WorkoutExerciseBlock: View {
     private var completedCount: Int { log.sets.filter(\.completed).count }
     private var allCompleted: Bool { !log.sets.isEmpty && completedCount == log.sets.count }
 
-    private var previousLog: ExerciseLog? {
-        Metrics.scopedSessions(sessions, gymID: gymID)
-            .filter { session in
-                session.exercises.contains(where: { $0.exerciseID == log.exerciseID })
-            }
+    @State private var priorLog: ExerciseLog?
+    @State private var priorSets: [(Double, Int)] = []
+    @State private var priorBest: Double = 0
+    @State private var historyLoaded = false
+
+    private var previousLog: ExerciseLog? { priorLog }
+    private var previous: [(Double, Int)] { priorSets }
+    private var best: Double { priorBest }
+
+    // History snapshots are loaded once per exercise instead of scanning the
+    // entire workout database on every keystroke or view invalidation.
+    private func refreshHistorySnapshot() {
+        let past = Metrics.scopedSessions(sessions, gymID: gymID)
+        priorLog = past
+            .filter { session in session.exercises.contains(where: { $0.exerciseID == log.exerciseID }) }
             .max(by: { ($0.endedAt ?? $0.startedAt) < ($1.endedAt ?? $1.startedAt) })?
-            .exercises
-            .first(where: { $0.exerciseID == log.exerciseID })
-    }
-
-    private var previous: [(Double, Int)] {
-        Metrics.previousSets(
-            exerciseID: log.exerciseID,
-            sessions: sessions,
-            gymID: gymID
+            .exercises.first(where: { $0.exerciseID == log.exerciseID })
+        priorSets = priorLog?.sets
+            .filter(\.countsForPR)
+            .sorted(by: { $0.order < $1.order })
+            .map { ($0.weightKg, $0.reps) } ?? []
+        priorBest = Metrics.personalBest(
+            exerciseID: log.exerciseID, sessions: sessions,
+            gymID: gymID, startDate: AppPreferences.prStartDate
         )
-    }
-
-    private var best: Double {
-        Metrics.personalBest(
-            exerciseID: log.exerciseID,
-            sessions: sessions,
-            gymID: gymID,
-            startDate: AppPreferences.prStartDate
-        )
+        historyLoaded = true
     }
 
     private var canCopyPrevious: Bool {
@@ -5090,19 +5062,10 @@ struct WorkoutExerciseBlock: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .background(
-            LinearGradient(
-                colors: [
-                    RFTheme.surface,
-                    allCompleted ? RFTheme.success.opacity(0.055) : RFTheme.raised.opacity(0.38)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .background(RFTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 19))
         .overlay(
-            RoundedRectangle(cornerRadius: 22)
+            RoundedRectangle(cornerRadius: 19)
                 .stroke(
                     supersetPosition != nil
                         ? RFTheme.accent.opacity(0.55)
@@ -5118,7 +5081,7 @@ struct WorkoutExerciseBlock: View {
                     .padding(.vertical, 14)
             }
         }
-        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
+        .shadow(color: Color.black.opacity(0.035), radius: 5, y: 2)
         .sheet(isPresented: $showOptions) {
             ExerciseLogOptionsView(log: log)
         }
@@ -5138,9 +5101,11 @@ struct WorkoutExerciseBlock: View {
             ))
         }
         .onAppear {
-            if autoCollapseCompleted && allCompleted {
-                isCollapsed = true
-            }
+            if !historyLoaded { refreshHistorySnapshot() }
+            if autoCollapseCompleted && allCompleted { isCollapsed = true }
+        }
+        .onChange(of: log.exerciseID) { _, _ in
+            refreshHistorySnapshot()
         }
         .onChange(of: completedCount) { _, _ in
             if autoCollapseCompleted && allCompleted {
@@ -5171,9 +5136,10 @@ struct WorkoutExerciseBlock: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 7) {
                             Text(exercise?.name ?? "Exercise")
-                                .font(.headline)
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
                                 .foregroundStyle(.primary)
-                                .lineLimit(1)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
 
                             if let supersetPosition {
                                 Text(supersetPosition)
@@ -5312,28 +5278,7 @@ struct WorkoutExerciseBlock: View {
     }
 
     private var strengthContent: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Text(L10n.text("SET", "SET"))
-                    .frame(width: 42, alignment: .leading)
-
-                if AppPreferences.showPreviousSets {
-                    Text(L10n.text("PREVIOUS", "VORIGE"))
-                        .frame(maxWidth: .infinity)
-                }
-
-                Text(AppPreferences.weightLabel.uppercased())
-                    .frame(width: 76)
-
-                Text(L10n.text("REPS", "REPS"))
-                    .frame(width: 64)
-
-                Image(systemName: "checkmark")
-                    .frame(width: 42)
-            }
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(RFTheme.muted)
-
+        VStack(spacing: 10) {
             ForEach(orderedSets) { set in
                 WorkoutSetRow(
                     set: set,
@@ -5342,9 +5287,7 @@ struct WorkoutExerciseBlock: View {
                     onCompleted: { completed in
                         if completed { onSetCompleted() }
                     },
-                    onDelete: {
-                        removeSet(set)
-                    }
+                    onDelete: { removeSet(set) }
                 )
             }
         }
@@ -5739,17 +5682,6 @@ struct SwipeDeleteContainer<Content: View>: View {
     let onDelete: () -> Void
     let content: Content
 
-    @State private var dragOffset: CGFloat = 0
-    @State private var restingOffset: CGFloat = 0
-    @State private var dragAxis: SwipeAxis?
-
-    private enum SwipeAxis {
-        case horizontal
-        case vertical
-    }
-
-    private let deleteWidth: CGFloat = 82
-
     init(
         canDelete: Bool,
         onDelete: @escaping () -> Void,
@@ -5761,79 +5693,25 @@ struct SwipeDeleteContainer<Content: View>: View {
     }
 
     var body: some View {
-        ZStack(alignment: .trailing) {
+        VStack(alignment: .trailing, spacing: 4) {
             if canDelete {
-                Button(role: .destructive) {
-                    Haptics.light()
-                    onDelete()
-                } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: "trash.fill")
-                        Text(L10n.text("Delete", "Verwijder"))
-                            .font(.caption2.bold())
+                Menu {
+                    Button(role: .destructive) {
+                        Haptics.light()
+                        onDelete()
+                    } label: {
+                        Label(L10n.text("Delete interval", "Interval verwijderen"), systemImage: "trash")
                     }
-                    .foregroundStyle(.white)
-                    .frame(width: deleteWidth)
-                    .frame(maxHeight: .infinity)
-                    .background(Color.red)
+                } label: {
+                    Label(L10n.text("More actions", "Meer acties"), systemImage: "ellipsis")
+                        .font(.caption)
+                        .foregroundStyle(RFTheme.muted)
+                        .frame(minHeight: 36)
                 }
             }
-
             content
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RFTheme.surface.opacity(0.001))
-                .offset(x: dragOffset)
-                .contentShape(Rectangle())
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 14)
-                        .onChanged { value in
-                            guard canDelete else { return }
-                            let horizontal = value.translation.width
-                            let vertical = value.translation.height
-
-                            if dragAxis == nil,
-                               max(abs(horizontal), abs(vertical)) > 10 {
-                                dragAxis = abs(horizontal) > abs(vertical) * 1.20 ? .horizontal : .vertical
-                            }
-
-                            guard dragAxis == .horizontal else { return }
-                            dragOffset = min(0, max(-deleteWidth * 1.5, restingOffset + horizontal))
-                        }
-                        .onEnded { _ in
-                            defer { dragAxis = nil }
-                            guard canDelete, dragAxis == .horizontal else { return }
-
-                            if dragOffset < -(deleteWidth * 1.15) {
-                                withAnimation(.easeOut(duration: 0.16)) {
-                                    dragOffset = -420
-                                }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-                                    Haptics.light()
-                                    onDelete()
-                                    dragOffset = 0
-                                    restingOffset = 0
-                                }
-                            } else if dragOffset < -(deleteWidth * 0.36) {
-                                withAnimation(.snappy) {
-                                    dragOffset = -deleteWidth
-                                    restingOffset = -deleteWidth
-                                }
-                            } else {
-                                withAnimation(.snappy) {
-                                    dragOffset = 0
-                                    restingOffset = 0
-                                }
-                            }
-                        }
-                )
         }
         .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .onAppear {
-            dragOffset = 0
-            restingOffset = 0
-            dragAxis = nil
-        }
     }
 }
 
@@ -5895,198 +5773,181 @@ struct WorkoutSetRow: View {
     let canDelete: Bool
     let onCompleted: (Bool) -> Void
     let onDelete: () -> Void
-
     @State private var showSetOptions = false
-    @State private var dragOffset: CGFloat = 0
-    @State private var restingOffset: CGFloat = 0
-    @State private var dragAxis: SwipeAxis?
-
-    private enum SwipeAxis {
-        case horizontal
-        case vertical
-    }
-
-    private let deleteWidth: CGFloat = 78
 
     var body: some View {
-        ZStack(alignment: .trailing) {
-            if canDelete {
-                Button(role: .destructive) {
-                    withAnimation(.snappy) {
-                        dragOffset = 0
-                        restingOffset = 0
-                    }
-                    Haptics.light()
-                    onDelete()
-                } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: "trash.fill")
-                        Text(L10n.text("Delete", "Verwijder"))
-                            .font(.caption2.bold())
-                    }
-                    .foregroundStyle(.white)
-                    .frame(width: deleteWidth, height: 44)
-                    .background(Color.red)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-                .accessibilityLabel(L10n.text("Delete set \(set.order + 1)", "Set \(set.order + 1) verwijderen"))
-            }
-
-            rowContent
-                // Keep the swipe hit target without painting a visible full-row
-                // background behind the REPS/completion cells on wider phones.
-                .background(RFTheme.surface.opacity(0.001))
-                .offset(x: dragOffset)
-                .contentShape(Rectangle())
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 14)
-                        .onChanged { value in
-                            guard canDelete else { return }
-
-                            let horizontal = value.translation.width
-                            let vertical = value.translation.height
-
-                            if dragAxis == nil,
-                               max(abs(horizontal), abs(vertical)) > 10 {
-                                dragAxis = abs(horizontal) > abs(vertical) * 1.20
-                                    ? .horizontal
-                                    : .vertical
-                            }
-
-                            guard dragAxis == .horizontal else { return }
-
-                            let proposed = restingOffset + horizontal
-                            dragOffset = min(0, max(-deleteWidth * 1.45, proposed))
-                        }
-                        .onEnded { _ in
-                            defer { dragAxis = nil }
-                            guard canDelete, dragAxis == .horizontal else { return }
-
-                            if dragOffset < -(deleteWidth * 1.15) {
-                                withAnimation(.easeOut(duration: 0.16)) {
-                                    dragOffset = -360
-                                }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-                                    Haptics.light()
-                                    onDelete()
-                                    dragOffset = 0
-                                    restingOffset = 0
-                                }
-                            } else if dragOffset < -(deleteWidth * 0.38) {
-                                withAnimation(.snappy) {
-                                    dragOffset = -deleteWidth
-                                    restingOffset = -deleteWidth
-                                }
-                            } else {
-                                withAnimation(.snappy) {
-                                    dragOffset = 0
-                                    restingOffset = 0
-                                }
-                            }
-                        }
-                )
-                .onTapGesture {
-                    if restingOffset != 0 {
-                        withAnimation(.snappy) {
-                            dragOffset = 0
-                            restingOffset = 0
-                        }
-                    }
-                }
+        VStack(alignment: .leading, spacing: 7) {
+            entryRow
+            previousValues
         }
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding(9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            set.completed ? RFTheme.success.opacity(0.075) : RFTheme.raised.opacity(0.65),
+            in: RoundedRectangle(cornerRadius: 16)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(set.completed ? RFTheme.success.opacity(0.25) : RFTheme.cardBorder)
+        )
         .sheet(isPresented: $showSetOptions) {
             SetOptionsView(set: set)
         }
     }
 
-    private func setTypeShort(_ type: String) -> String {
-        switch type {
-        case "warmup": return "WU"
-        case "drop": return "DROP"
-        case "failure": return "FAIL"
-        default: return ""
-        }
-    }
-
-    private var rowContent: some View {
-        HStack(spacing: 8) {
+    private var entryRow: some View {
+        HStack(spacing: 7) {
             Button {
                 showSetOptions = true
             } label: {
-                VStack(spacing: 1) {
+                VStack(spacing: 2) {
                     Text("\(set.order + 1)")
-                        .font(.headline)
+                        .font(.headline.monospacedDigit())
+                        .foregroundStyle(.primary)
                     if set.setType != "working" {
-                        Text(setTypeShort(set.setType))
-                            .font(.system(size: 8, weight: .bold))
+                        Text("•")
+                            .font(.system(size: 7, weight: .black))
                             .foregroundStyle(RFTheme.accent)
                     }
                 }
-                .frame(width: 42, height: 42)
-                .background(RFTheme.field)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .frame(width: 34, height: 49)
+                .background(RFTheme.field, in: RoundedRectangle(cornerRadius: 11))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(L10n.text("Set", "Set") + " \(set.order + 1)")
 
-            if AppPreferences.showPreviousSets {
-                Text(previous.map {
-                    "\(AppPreferences.displayWeight($0.0).formatted(.number.precision(.fractionLength(0...2)))) × \($0.1)"
-                } ?? "—")
-                    .font(.caption)
-                    .foregroundStyle(RFTheme.muted)
-                    .frame(maxWidth: .infinity)
+            inputs
+            completeButton
+            moreActions
+        }
+    }
+
+    private var moreActions: some View {
+        Menu {
+            Button {
+                showSetOptions = true
+            } label: {
+                Label(L10n.text("Set options", "Setopties"), systemImage: "slider.horizontal.3")
             }
+            if canDelete {
+                Button(role: .destructive, action: onDelete) {
+                    Label(L10n.text("Delete set", "Set verwijderen"), systemImage: "trash")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.headline)
+                .foregroundStyle(RFTheme.muted)
+                .frame(width: 29, height: 49)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(L10n.text("More set actions", "Meer setacties"))
+    }
 
-            DoneNumberField(
+    private var completeButton: some View {
+        Button(action: toggleCompleted) {
+            Image(systemName: set.completed ? "checkmark.circle.fill" : "circle")
+                .font(.title3)
+                .foregroundStyle(set.completed ? RFTheme.success : RFTheme.accent)
+                .frame(width: 44, height: 49)
+                .background(
+                    set.completed ? RFTheme.success.opacity(0.12) : RFTheme.accent.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 11)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(set.completed
+            ? L10n.text("Unmark completed set", "Voltooide set terugdraaien")
+            : L10n.text("Complete set", "Set voltooien"))
+    }
+
+    private var inputs: some View {
+        HStack(spacing: 7) {
+            entryField(
+                title: AppPreferences.weightLabel.uppercased(),
                 value: Binding(
                     get: { AppPreferences.displayWeight(set.weightKg) },
                     set: { set.weightKg = AppPreferences.storedWeightKg($0) }
                 ),
-                integerOnly: false,
-                placeholder: "0"
+                integerOnly: false
             )
-            .frame(width: 76, height: 42)
-            .background(RFTheme.field)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-
-            DoneNumberField(
+            entryField(
+                title: L10n.text("REPS", "REPS"),
                 value: Binding(
                     get: { Double(set.reps) },
                     set: { set.reps = max(0, Int($0.rounded())) }
                 ),
-                integerOnly: true,
-                placeholder: "0"
-            )
-            .frame(width: 64, height: 42)
-            .background(RFTheme.field)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-
-            Button {
-                set.completed.toggle()
-                set.completedAt = set.completed ? .now : nil
-                if set.completed { Haptics.success() } else { Haptics.light() }
-                try? context.save()
-                onCompleted(set.completed)
-            } label: {
-                Image(systemName: set.completed ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(set.completed ? RFTheme.success : RFTheme.muted)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .buttonStyle(.plain)
-            .frame(width: 42, height: 42)
-            .background(set.completed ? RFTheme.success.opacity(0.11) : RFTheme.field)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(
-                        set.completed ? RFTheme.success.opacity(0.25) : Color.clear,
-                        lineWidth: 1
-                    )
+                integerOnly: true
             )
         }
-        .frame(height: 44)
+    }
+
+    @ViewBuilder
+    private var previousValues: some View {
+        if AppPreferences.showPreviousSets, let previous {
+            HStack(spacing: 6) {
+                Label(
+                    previousLabel(weight: previous.0, reps: previous.1),
+                    systemImage: "clock.arrow.circlepath"
+                )
+                .font(.caption2)
+                .foregroundStyle(RFTheme.muted)
+
+                Spacer(minLength: 0)
+
+                if !set.completed {
+                    Button {
+                        set.weightKg = previous.0
+                        set.reps = previous.1
+                        try? context.save()
+                        Haptics.light()
+                    } label: {
+                        Label(L10n.text("Reuse", "Herhaal"), systemImage: "arrow.down.to.line")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(RFTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.text(
+                        "Copy previous weight and repetitions",
+                        "Vorig gewicht en herhalingen kopiëren"
+                    ))
+                }
+            }
+        }
+    }
+
+    private func previousLabel(weight: Double, reps: Int) -> String {
+        let display = AppPreferences.displayWeight(weight)
+            .formatted(.number.precision(.fractionLength(0...2)))
+        return L10n.text("Previous", "Vorig") + ": " +
+            display + " " + AppPreferences.weightLabel + " × \(reps)"
+    }
+
+    private func toggleCompleted() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+        )
+        set.completed.toggle()
+        set.completedAt = set.completed ? .now : nil
+        if set.completed { Haptics.success() } else { Haptics.light() }
+        try? context.save()
+        onCompleted(set.completed)
+    }
+
+    private func entryField(
+        title: String, value: Binding<Double>, integerOnly: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.7)
+                .foregroundStyle(RFTheme.muted)
+            DoneNumberField(value: value, integerOnly: integerOnly, placeholder: "0")
+                .frame(height: 31)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 49)
+        .background(RFTheme.field, in: RoundedRectangle(cornerRadius: 11))
     }
 }
 
@@ -6211,8 +6072,10 @@ struct DoneNumberField: UIViewRepresentable {
         field.tintColor = UIColor(RFTheme.accent)
         field.placeholder = placeholder
         field.adjustsFontSizeToFitWidth = true
-        field.minimumFontSize = 12
-        field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
+        field.minimumFontSize = 13
+        field.font = .systemFont(ofSize: 18, weight: .semibold)
+        // Keep partial numeric edits in UIKit until editing ends; SwiftData writes
+        // on every keypress used to invalidate the entire active workout.
 
         let toolbar = UIToolbar()
         toolbar.sizeToFit()
@@ -6259,18 +6122,18 @@ struct DoneNumberField: UIViewRepresentable {
             self.parent = parent
         }
 
-        @objc func changed(_ sender: UITextField) {
-            let raw = sender.text ?? ""
-            let normalized = raw.replacingOccurrences(of: ",", with: ".")
-            guard !normalized.isEmpty else {
+        func textFieldDidEndEditing(_ textField: UITextField) {
+            let raw = (textField.text ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: ",", with: ".")
+            if raw.isEmpty {
                 parent.value = 0
-                return
-            }
-
-            if parent.integerOnly {
-                parent.value = Double(Int(normalized) ?? 0)
-            } else if let parsed = Double(normalized) {
-                parent.value = max(0, parsed)
+            } else if parent.integerOnly {
+                if let parsed = Int(raw), parsed >= 0 {
+                    parent.value = Double(parsed)
+                }
+            } else if let parsed = Double(raw), parsed.isFinite, parsed >= 0 {
+                parent.value = parsed
             }
         }
 
