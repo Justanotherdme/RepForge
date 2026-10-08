@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import Combine
 
 struct EFWorkout: View {
     @Environment(\.dismiss) private var dismiss
