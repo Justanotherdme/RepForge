@@ -28,7 +28,14 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            build
+            build 2>&1 | tee /tmp/repforge-build.log
+      - name: Upload compiler diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RepForge-compiler-diagnostics
+          path: /tmp/repforge-build.log
+          if-no-files-found: ignore
       - name: Validate embedded Live Activity bundle
         run: |
           APP="build/Build/Products/Release-iphoneos/RepForge.app"
