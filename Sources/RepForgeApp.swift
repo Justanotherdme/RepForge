@@ -172,6 +172,26 @@ enum L10n {
     static var finish: String { text("Finish", "Afronden") }
 }
 
+/// Three distinct information-density and composition systems, independent of color theme.
+enum RFLayout {
+    static var style: String {
+        UserDefaults.standard.string(forKey: "layoutStyle") ?? "balanced"
+    }
+
+    static var pagePadding: CGFloat { style == "compact" ? 12 : 18 }
+    static var sectionSpacing: CGFloat { style == "compact" ? 14 : 24 }
+    static var cardPadding: CGFloat { style == "compact" ? 12 : (style == "focused" ? 24 : 17) }
+    static var cornerRadius: CGFloat { style == "compact" ? 12 : (style == "focused" ? 28 : 20) }
+    static var heroFont: Font {
+        style == "focused" ? .system(size: 35, weight: .black, design: .rounded)
+            : .system(size: style == "compact" ? 25 : 30, weight: .bold, design: .rounded)
+    }
+    static var templateColumns: [GridItem] {
+        if style == "focused" { return [GridItem(.flexible())] }
+        return [GridItem(.adaptive(minimum: style == "compact" ? 145 : 165), spacing: 12)]
+    }
+}
+
 enum RFTheme {
     private static var explicitLight: Bool { AppPreferences.appearance == "light" }
     private static var systemMode: Bool { AppPreferences.appearance == "system" }
@@ -1077,9 +1097,49 @@ Smith Machine Leg Press|Quadriceps|Machine|squat
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }()
 
+    // Preserve the legacy movements in the picker as well as in older workout history.
+    // The bundled video catalog is not a complete exercise catalog by itself.
+    private static let additionalMachineBuiltIn: [ExerciseDefinition] = GymMachineCatalog.variants.map { exercise in
+        guard let sourceID = exercise.sourceID,
+              let item = bundledSourceItems[sourceID] else {
+            return exercise
+        }
+        return ExerciseDefinition(
+            id: exercise.id,
+            name: exercise.name,
+            muscle: exercise.muscle,
+            equipment: exercise.equipment,
+            movement: exercise.movement,
+            aliases: exercise.aliases + (item.aliases ?? []),
+            sourceID: sourceID,
+            sourceTarget: item.target,
+            sourceSecondaryMuscles: item.secondaryMuscles ?? [],
+            sourceBodyPart: item.bodyPart,
+            sourceSteps: item.steps ?? [],
+            sourceFormCues: item.formCues ?? []
+        )
+    }
+
+    private static let bundledSourceItems: [String: ExerciseDBItem] = {
+        guard let url = Bundle.main.url(forResource: "ExerciseDatabase", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let items = try? JSONDecoder().decode([ExerciseDBItem].self, from: data) else {
+            return [:]
+        }
+        return Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+    }()
+
+    private static let combinedBuiltIn: [ExerciseDefinition] = {
+        let primary = databaseBuiltIn.isEmpty ? legacyBuiltIn : databaseBuiltIn
+        var names = Set(primary.map { $0.name.lowercased() })
+        let additional = (additionalMachineBuiltIn + legacyBuiltIn).filter { item in
+            names.insert(item.name.lowercased()).inserted
+        }
+        return primary + additional
+    }()
+
     static var all: [ExerciseDefinition] {
-        let builtIns = databaseBuiltIn.isEmpty ? legacyBuiltIn : databaseBuiltIn
-        return builtIns + CustomExerciseStore.load().map { $0.definition }
+        combinedBuiltIn + CustomExerciseStore.load().map { $0.definition }
     }
 
     static func find(_ id: String) -> ExerciseDefinition? {
@@ -2363,7 +2423,9 @@ enum ExerciseMediaService {
         let items = try await ExerciseMediaCatalog.shared.exercises()
         guard !items.isEmpty else { return nil }
 
-        if noExactDemo.contains(exercise.name) {
+        if noExactDemo.contains(exercise.name) ||
+            (exercise.id.hasPrefix("gym-") && exercise.sourceID == nil) {
+            // Never substitute a similar-but-different movement's tutorial.
             return nil
         }
 
@@ -2659,6 +2721,7 @@ struct RootView: View {
     @AppStorage("appearance") private var appearance = "dark"
     @AppStorage("themePreset") private var themePreset = "forge"
     @AppStorage("textSize") private var textSize = "standard"
+    @AppStorage("layoutStyle") private var layoutStyle = "balanced"
     @AppStorage("measurementSystem") private var measurementSystem = "metric"
 
     var body: some View {
@@ -2682,7 +2745,7 @@ struct RootView: View {
         .tint(RFTheme.accent)
         .preferredColorScheme(preferredColorScheme)
         .dynamicTypeSize(preferredTextSize)
-        .id("\(appLanguage)-\(appearance)-\(themePreset)-\(textSize)-\(measurementSystem)")
+        .id("\(appLanguage)-\(appearance)-\(themePreset)-\(textSize)-\(measurementSystem)-\(layoutStyle)")
         .task {
             if profiles.isEmpty {
                 context.insert(UserProfile())
@@ -2845,47 +2908,67 @@ struct StartWorkoutView: View {
             .map { $0 }
     }
 
+    private var completedThisWeek: Int {
+        sessions.filter {
+            $0.endedAt != nil && Calendar.current.isDate(
+                $0.startedAt, equalTo: .now, toGranularity: .weekOfYear
+            )
+        }.count
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(alignment: .center) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("RepForge")
-                                    .font(.system(size: 34, weight: .black, design: .rounded))
-                                Text(L10n.text("Train. Track. Progress.", "Train. Volg. Groei."))
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(RFTheme.muted)
+                VStack(alignment: .leading, spacing: RFLayout.sectionSpacing) {
+                    VStack(alignment: .leading, spacing: RFLayout.sectionSpacing) {
+                        HStack(alignment: .top, spacing: 14) {
+                            VStack(alignment: .leading, spacing: 9) {
+                                Text(L10n.text("YOUR TRAINING SPACE", "JOUW TRAININGSRUIMTE"))
+                                    .font(.caption2.weight(.heavy))
+                                    .tracking(1.8)
+                                    .foregroundStyle(RFTheme.accent)
+
+                                Text(L10n.text("Make today's sets count.", "Haal meer uit elke set."))
+                                    .font(RFLayout.heroFont)
+                                    .foregroundStyle(.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                Text(L10n.text(
+                                    "Start quickly. Log every rep. See your progress.",
+                                    "Start direct. Log elke rep. Zie je vooruitgang."
+                                ))
+                                .font(.subheadline)
+                                .foregroundStyle(RFTheme.muted)
                             }
 
-                            Spacer()
+                            Spacer(minLength: 0)
 
-                            Text("0.2.9")
-                                .font(.caption.bold())
+                            Image(systemName: "figure.strengthtraining.traditional")
+                                .font(.system(size: RFLayout.style == "compact" ? 26 : 32, weight: .bold))
                                 .foregroundStyle(RFTheme.accent)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(RFTheme.accent.opacity(0.14))
-                                .clipShape(Capsule())
+                                .frame(width: RFLayout.style == "compact" ? 54 : 68,
+                                       height: RFLayout.style == "compact" ? 54 : 68)
+                                .background(RFTheme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 18))
+                                .accessibilityHidden(true)
                         }
 
-                        HStack(spacing: 8) {
-                            Label(L10n.text("Cardio v2", "Cardio v2"), systemImage: "figure.run")
-                            Label(L10n.text("Rest Timer", "Rusttimer"), systemImage: "timer")
-                            Label(L10n.text("Smart Cards", "Slimme kaarten"), systemImage: "rectangle.stack.fill")
+                        HStack(spacing: 10) {
+                            Label("\(completedThisWeek) " + L10n.text("this week", "deze week"), systemImage: "checkmark.circle")
+                            Spacer()
+                            Label("\(templates.count) " + L10n.text("routines", "schema's"), systemImage: "rectangle.stack")
                         }
-                        .font(.caption2.bold())
-                        .foregroundStyle(RFTheme.muted)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, RFLayout.style == "compact" ? 0 : 6)
                     }
-                    .padding(16)
+                    .padding(RFLayout.cardPadding)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RFTheme.heroGradient)
-                    .clipShape(RoundedRectangle(cornerRadius: 24))
+                    .clipShape(RoundedRectangle(cornerRadius: RFLayout.cornerRadius))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 24)
+                        RoundedRectangle(cornerRadius: RFLayout.cornerRadius)
                             .stroke(RFTheme.cardBorder)
                     )
-                    .shadow(color: Color.black.opacity(0.10), radius: 12, y: 5)
 
                     HStack {
                         Text(L10n.text("Quick Start", "Snel starten"))
@@ -2897,10 +2980,18 @@ struct StartWorkoutView: View {
                     Button {
                         activeSession = createSession(title: "Workout", exerciseIDs: [])
                     } label: {
-                        Label("Start an Empty Workout", systemImage: "bolt.fill")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 15)
+                        HStack {
+                            Image(systemName: "bolt.fill")
+                                .font(.title3.bold())
+                            Text(L10n.text("Start an empty workout", "Lege training starten"))
+                                .font(.headline)
+                            Spacer()
+                            Image(systemName: "arrow.right")
+                                .font(.headline)
+                        }
+                        .padding(.horizontal, 8)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, RFLayout.style == "compact" ? 11 : 17)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(RFTheme.accent)
@@ -2936,7 +3027,7 @@ struct StartWorkoutView: View {
                     }
 
                     HStack {
-                        Text("Templates").font(.largeTitle.bold())
+                        Text(L10n.text("Your templates", "Jouw templates")).font(.title2.bold())
                         Spacer()
                         Button {
                             templateSeed = nil
@@ -2954,7 +3045,7 @@ struct StartWorkoutView: View {
                             text: "Save a repeatable workout, then launch it with one tap."
                         )
                     } else {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 165), spacing: 14)], spacing: 14) {
+                        LazyVGrid(columns: RFLayout.templateColumns, spacing: RFLayout.style == "compact" ? 8 : 14) {
                             ForEach(templates) { template in
                                 TemplateCard(
                                     template: template,
@@ -3054,7 +3145,7 @@ struct StartWorkoutView: View {
                         .buttonStyle(.bordered)
                     }
                 }
-                .padding()
+                .padding(RFLayout.pagePadding)
             }
             .background(RFTheme.bg)
             .navigationTitle(L10n.startWorkout)
@@ -3879,13 +3970,15 @@ struct ExercisePickerView: View {
     @Binding var selectedIDs: [String]
     @State private var search = ""
     @State private var muscle = "All"
+    @State private var equipment = "All"
     @AppStorage("exerciseShortcutRevision") private var shortcutRevision = 0
 
     private var filtered: [ExerciseDefinition] {
         _ = shortcutRevision
         return ExerciseCatalog.all.filter { ex in
             ExerciseSearch.matches(ex, query: search) &&
-            (muscle == "All" || ex.muscle == muscle)
+            (muscle == "All" || ex.muscle == muscle) &&
+            GymEquipmentFilter.matches(ex, selected: equipment)
         }
     }
 
@@ -3900,7 +3993,8 @@ struct ExercisePickerView: View {
     }
 
     private var showShortcuts: Bool {
-        search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && muscle == "All"
+        search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            muscle == "All" && equipment == "All"
     }
 
     var body: some View {
@@ -3934,19 +4028,33 @@ struct ExercisePickerView: View {
             .background(RFTheme.bg)
             .navigationTitle(L10n.exercises)
             .safeAreaInset(edge: .top) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
-                        ForEach(["All"] + ExerciseCatalog.muscles, id: \.self) { item in
-                            Button(item == "All" ? L10n.text("All", "Alles") : item) {
-                                muscle = item
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(muscle == item ? RFTheme.accent : .gray)
+                HStack(spacing: 10) {
+                    Menu {
+                        Button(L10n.text("All muscles", "Alle spiergroepen")) { muscle = "All" }
+                        ForEach(ExerciseCatalog.muscles, id: \.self) { option in
+                            Button(option) { muscle = option }
                         }
+                    } label: {
+                        Label(muscle == "All" ? L10n.text("Muscles", "Spieren") : muscle,
+                              systemImage: "figure.strengthtraining.traditional")
+                            .font(.subheadline.weight(.medium))
+                            .lineLimit(1)
                     }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
+
+                    Spacer()
+
+                    Menu {
+                        ForEach(GymEquipmentFilter.options, id: \.self) { option in
+                            Button(GymEquipmentFilter.label(option)) { equipment = option }
+                        }
+                    } label: {
+                        Label(GymEquipmentFilter.label(equipment), systemImage: "slider.horizontal.3")
+                            .font(.subheadline.weight(.medium))
+                            .lineLimit(1)
+                    }
                 }
+                .padding(.horizontal)
+                .padding(.vertical, 10)
                 .background(.ultraThinMaterial)
             }
             .safeAreaInset(edge: .bottom) {
@@ -7460,108 +7568,96 @@ struct WorkoutComparisonCard: View {
 struct ExerciseLibraryView: View {
     @State private var search = ""
     @State private var muscle = "All"
+    @State private var equipment = "All"
     @State private var showCustomEditor = false
     @State private var refreshToken = UUID()
     @State private var deleteCandidate: ExerciseDefinition?
 
     private var filtered: [ExerciseDefinition] {
         _ = refreshToken
-        return ExerciseCatalog.all.filter {
-            ExerciseSearch.matches($0, query: search) &&
-            (muscle == "All" || $0.muscle == muscle)
+        return ExerciseCatalog.all.filter { ex in
+            ExerciseSearch.matches(ex, query: search) &&
+            (muscle == "All" || ex.muscle == muscle) &&
+            GymEquipmentFilter.matches(ex, selected: equipment)
         }
     }
 
     var body: some View {
         NavigationStack {
-            List(filtered) { ex in
-                NavigationLink {
-                    ExerciseDetailView(exercise: ex)
-                } label: {
-                    HStack(spacing: 14) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 12).fill(RFTheme.raised)
-                            Image(systemName: icon(for: ex.movement))
-                                .foregroundStyle(RFTheme.accent)
-                                .font(.title2)
-                        }
-                        .frame(width: 52, height: 52)
+            VStack(spacing: 0) {
+                filterPanel
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 6) {
-                                Text(ex.name).font(.headline)
-                                if CustomExerciseStore.isCustom(ex.id) {
-                                    Text(L10n.text("CUSTOM", "EIGEN"))
-                                        .font(.system(size: 8, weight: .bold))
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 2)
-                                        .background(RFTheme.accent.opacity(0.18))
-                                        .foregroundStyle(RFTheme.accent)
-                                        .clipShape(Capsule())
+                HStack {
+                    Text("\(filtered.count) " + L10n.text("exercises", "oefeningen"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(RFTheme.muted)
+                    Spacer()
+                    if muscle != "All" || equipment != "All" || !search.isEmpty {
+                        Button(L10n.text("Clear filters", "Filters wissen")) {
+                            search = ""
+                            muscle = "All"
+                            equipment = "All"
+                        }
+                        .font(.caption.weight(.semibold))
+                    }
+                }
+                .padding(.horizontal, RFLayout.pagePadding)
+                .padding(.vertical, 8)
+
+                if filtered.isEmpty {
+                    ContentUnavailableView.search(text: search)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(filtered) { ex in
+                        NavigationLink {
+                            ExerciseDetailView(exercise: ex)
+                        } label: {
+                            ExerciseLibraryRow(exercise: ex)
+                        }
+                        .listRowBackground(RFLayout.style == "focused" ? RFTheme.surface : Color.clear)
+                        .listRowSeparator(RFLayout.style == "focused" ? .hidden : .visible)
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            Button {
+                                ExerciseShortcutStore.toggleFavorite(ex.id)
+                                refreshToken = UUID()
+                            } label: {
+                                Label(
+                                    ExerciseShortcutStore.isFavorite(ex.id)
+                                        ? L10n.text("Unfavorite", "Verwijder favoriet")
+                                        : L10n.text("Favorite", "Favoriet"),
+                                    systemImage: ExerciseShortcutStore.isFavorite(ex.id) ? "star.slash" : "star.fill"
+                                )
+                            }
+                            .tint(.yellow)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if CustomExerciseStore.isCustom(ex.id) {
+                                Button(role: .destructive) {
+                                    deleteCandidate = ex
+                                } label: {
+                                    Label(L10n.text("Delete", "Verwijder"), systemImage: "trash")
                                 }
                             }
-
-                            Text("\(ex.muscle) • \(ex.equipment)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
                         }
                     }
-                    .padding(.vertical, 4)
-                }
-                .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                    Button {
-                        ExerciseShortcutStore.toggleFavorite(ex.id)
-                        refreshToken = UUID()
-                    } label: {
-                        Label(
-                            ExerciseShortcutStore.isFavorite(ex.id)
-                                ? L10n.text("Unfavorite", "Verwijder favoriet")
-                                : L10n.text("Favorite", "Favoriet"),
-                            systemImage: ExerciseShortcutStore.isFavorite(ex.id) ? "star.slash" : "star.fill"
-                        )
-                    }
-                    .tint(.yellow)
-                }
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    if CustomExerciseStore.isCustom(ex.id) {
-                        Button(role: .destructive) {
-                            deleteCandidate = ex
-                        } label: {
-                            Label(L10n.text("Delete", "Verwijder"), systemImage: "trash")
-                        }
-                    }
+                    .listStyle(.plain)
+                    .id(refreshToken)
+                    .scrollContentBackground(.hidden)
                 }
             }
-            .id(refreshToken)
-            .scrollContentBackground(.hidden)
             .background(RFTheme.bg)
-            .searchable(text: $search, prompt: L10n.text("Search exercises, aliases or equipment", "Zoek oefeningen, aliassen of apparatuur"))
+            .searchable(
+                text: $search,
+                prompt: L10n.text("Exercise or machine name", "Oefening of apparaat")
+            )
             .navigationTitle(L10n.exercises)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showCustomEditor = true
-                    } label: {
+                    Button { showCustomEditor = true } label: {
                         Image(systemName: "plus")
                     }
                     .accessibilityLabel(L10n.text("Create custom exercise", "Eigen oefening maken"))
                 }
-            }
-            .safeAreaInset(edge: .top) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
-                        ForEach(["All"] + ExerciseCatalog.muscles, id: \.self) { item in
-                            Button(item == "All" ? L10n.text("All", "Alles") : item) {
-                                muscle = item
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(muscle == item ? RFTheme.accent : .gray)
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.vertical, 6)
-                }
-                .background(.ultraThinMaterial)
             }
             .sheet(isPresented: $showCustomEditor, onDismiss: {
                 refreshToken = UUID()
@@ -7595,10 +7691,127 @@ struct ExerciseLibraryView: View {
         }
     }
 
-    private func icon(for movement: String) -> String {
-        switch movement {
-        case "press": return "arrow.up.circle.fill"
-        case "pull": return "arrow.down.circle.fill"
+    private var filterPanel: some View {
+        VStack(alignment: .leading, spacing: RFLayout.style == "compact" ? 8 : 12) {
+            HStack {
+                Text(L10n.text("Explore equipment", "Verken apparaten"))
+                    .font(RFLayout.style == "focused" ? .title3.bold() : .headline)
+                Spacer()
+                Menu {
+                    Button(L10n.text("All muscles", "Alle spiergroepen")) { muscle = "All" }
+                    ForEach(ExerciseCatalog.muscles, id: \.self) { option in
+                        Button(option) { muscle = option }
+                    }
+                } label: {
+                    Label(
+                        muscle == "All" ? L10n.text("Muscles", "Spieren") : muscle,
+                        systemImage: "line.3.horizontal.decrease"
+                    )
+                    .font(.subheadline.weight(.medium))
+                }
+            }
+            .padding(.horizontal, RFLayout.pagePadding)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(GymEquipmentFilter.options, id: \.self) { option in
+                        Button {
+                            equipment = option
+                        } label: {
+                            Text(GymEquipmentFilter.label(option))
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 13)
+                                .padding(.vertical, RFLayout.style == "compact" ? 7 : 10)
+                                .foregroundStyle(equipment == option ? RFTheme.accent : .primary)
+                                .background(
+                                    equipment == option ? RFTheme.accent.opacity(0.16) : RFTheme.surface,
+                                    in: Capsule()
+                                )
+                                .overlay(Capsule().stroke(
+                                    equipment == option ? RFTheme.accent.opacity(0.65) : RFTheme.cardBorder
+                                ))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(equipment == option ? .isSelected : [])
+                    }
+                }
+                .padding(.horizontal, RFLayout.pagePadding)
+            }
+
+            if equipment == "Machines" && search.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 7) {
+                        ForEach(GymEquipmentFilter.machineShortcuts, id: \.label) { shortcut in
+                            Button {
+                                search = shortcut.term
+                                muscle = "All"
+                            } label: {
+                                Label(shortcut.label, systemImage: "magnifyingglass")
+                                    .font(.caption)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 7)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                    .padding(.horizontal, RFLayout.pagePadding)
+                }
+            }
+        }
+        .padding(.vertical, RFLayout.style == "compact" ? 8 : 12)
+        .background(.ultraThinMaterial)
+    }
+}
+
+struct ExerciseLibraryRow: View {
+    let exercise: ExerciseDefinition
+
+    var body: some View {
+        HStack(spacing: RFLayout.style == "compact" ? 10 : 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: RFLayout.style == "compact" ? 9 : 15)
+                    .fill(RFTheme.accent.opacity(0.12))
+                Image(systemName: symbol)
+                    .font(RFLayout.style == "compact" ? .body : .title3)
+                    .foregroundStyle(RFTheme.accent)
+            }
+            .frame(width: RFLayout.style == "compact" ? 38 : 54,
+                   height: RFLayout.style == "compact" ? 38 : 54)
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(exercise.name)
+                    .font(RFLayout.style == "compact" ? .subheadline.weight(.semibold) : .headline)
+                    .foregroundStyle(.primary)
+                HStack(spacing: 5) {
+                    Text(exercise.muscle)
+                    Text("•")
+                    Text(exercise.equipment)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+
+            Spacer(minLength: 4)
+
+            if CustomExerciseStore.isCustom(exercise.id) {
+                Image(systemName: "person.crop.circle.badge.checkmark")
+                    .foregroundStyle(RFTheme.muted)
+                    .accessibilityLabel(L10n.text("Custom exercise", "Eigen oefening"))
+            } else if exercise.sourceID != nil {
+                Image(systemName: "play.rectangle")
+                    .foregroundStyle(RFTheme.muted)
+                    .accessibilityLabel(L10n.text("Video available", "Video beschikbaar"))
+            }
+        }
+        .padding(.vertical, RFLayout.style == "compact" ? 0 : 5)
+    }
+
+    private var symbol: String {
+        switch exercise.movement {
+        case "press": return "arrow.up.right"
+        case "pull": return "arrow.down.left"
         case "squat": return "figure.strengthtraining.traditional"
         case "hinge": return "figure.flexibility"
         case "cardio": return "figure.run"
@@ -8263,8 +8476,15 @@ struct LoopingExerciseVideo: View {
         }
         .task(id: url) {
             player?.pause()
+            player = nil
+            looper = nil
 
-            let item = AVPlayerItem(url: url)
+            // Play the downloaded local MP4 on subsequent visits, including offline.
+            // Streaming remains a fallback when storage is full or downloads fail.
+            let playbackURL = (try? await ExerciseVideoCache.shared.localURL(for: url)) ?? url
+            guard !Task.isCancelled else { return }
+
+            let item = AVPlayerItem(url: playbackURL)
             let queue = AVQueuePlayer()
             queue.isMuted = true
             queue.actionAtItemEnd = .none
@@ -9412,6 +9632,7 @@ struct SettingsView: View {
     @AppStorage("appearance") private var appearance = "dark"
     @AppStorage("themePreset") private var themePreset = "forge"
     @AppStorage("textSize") private var textSize = "standard"
+    @AppStorage("layoutStyle") private var layoutStyle = "balanced"
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
     @AppStorage("showPreviousSets") private var showPreviousSets = true
     @AppStorage("keepScreenAwake") private var keepScreenAwake = true
@@ -9543,6 +9764,18 @@ struct SettingsView: View {
                     }
 
                     ThemeSelector(selection: $themePreset)
+
+                    Picker(L10n.text("Layout", "Indeling"), selection: $layoutStyle) {
+                        Text(L10n.text("Balanced cards", "Gebalanceerde kaarten")).tag("balanced")
+                        Text(L10n.text("Compact lists", "Compacte lijsten")).tag("compact")
+                        Text(L10n.text("Focused sections", "Focus op secties")).tag("focused")
+                    }
+                    Text(L10n.text(
+                        "Changes spacing, card shapes, template layout and visual hierarchy—not just colors.",
+                        "Verandert afstanden, kaartvormen, template-indeling en visuele hiërarchie, niet alleen kleuren."
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                     Picker(L10n.text("Text size", "Tekstgrootte"), selection: $textSize) {
                         Text(L10n.text("Compact", "Compact")).tag("compact")
