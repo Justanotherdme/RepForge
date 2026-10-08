@@ -161,6 +161,7 @@ enum EFTab: Int, CaseIterable {
 struct EFNavigation: View {
     @Binding var selected: Int
     let start: () -> Void
+    var dark = false
     @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         HStack(spacing: 4) {
@@ -181,8 +182,8 @@ struct EFNavigation: View {
         .padding(.horizontal, 9)
         .padding(.top, 8)
         .padding(.bottom, 8)
-        .background(EF.paper.opacity(0.98))
-        .overlay(alignment: .top) { EFRule() }
+        .background(dark ? EF.night : EF.paper)
+        .overlay(alignment: .top) { EFRule(dark: dark) }
     }
     private func tab(_ item: EFTab) -> some View {
         Button { selected = item.rawValue } label: {
@@ -194,7 +195,8 @@ struct EFNavigation: View {
                     .tracking(0.3)
                     .minimumScaleFactor(0.75)
             }
-            .foregroundStyle(selected == item.rawValue ? EF.cobalt : EF.faint)
+            .foregroundStyle(selected == item.rawValue ? (dark ? EF.ice : EF.cobalt) :
+                                     (dark ? EF.ice.opacity(0.64) : EF.faint))
             .frame(maxWidth: .infinity, minHeight: 52)
             .contentShape(Rectangle())
         }
