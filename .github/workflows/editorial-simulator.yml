@@ -1,0 +1,63 @@
+name: Editorial iPhone visual acceptance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  simulator-preview:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate original RepForge icon
+        run: swift Scripts/generate_app_icon.swift
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate iOS project
+        run: xcodegen generate
+      - name: Select an available iPhone simulator
+        shell: bash
+        run: |
+          xcrun simctl list devices available -j > /tmp/ios-devices.json
+          DEVICE=$(python3 - <<'PY'
+          import json
+          devices=json.load(open('/tmp/ios-devices.json')).get('devices',{})
+          for runtime, entries in devices.items():
+              if 'iOS' not in runtime: continue
+              for entry in entries:
+                  if entry.get('isAvailable',True) and 'iPhone' in entry.get('name',''):
+                      print(entry['udid'])
+                      raise SystemExit(0)
+          raise SystemExit("No iPhone simulator found")
+          PY
+          )
+          echo "SIM_ID=$DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+      - name: Build simulator app
+        run: |
+          set -o pipefail
+          xcodebuild -project RepForge.xcodeproj \
+            -scheme RepForge -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$SIM_ID" \
+            -derivedDataPath sim-build \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee simulator-build.log
+      - name: Install, launch and capture approved home
+        run: |
+          APP=sim-build/Build/Products/Debug-iphonesimulator/RepForge.app
+          xcrun simctl install "$SIM_ID" "$APP"
+          xcrun simctl launch "$SIM_ID" com.xflipperkast.repforge
+          sleep 5
+          mkdir -p previews
+          xcrun simctl io "$SIM_ID" screenshot previews/editorial-home.png
+          test -s previews/editorial-home.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: RepForge-editorial-simulator-preview
+          path: |
+            previews/
+            simulator-build.log
+          if-no-files-found: ignore
