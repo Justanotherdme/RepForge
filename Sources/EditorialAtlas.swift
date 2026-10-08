@@ -127,7 +127,7 @@ struct EFAtlas: View {
 
                 EFSection(title: "MUSCLE BREAKDOWN", detail: "\(breakdown.count) GROUPS ↗", dark: true)
                     .padding(.top, 4)
-                ForEach(Array(breakdown.prefix(20).enumerated()), id: \.element.name) { index, item in
+                ForEach(Array(breakdown.prefix(20).enumerated()), id: \.offset) { index, item in
                     Button {
                         selectedMuscle = selectedMuscle == item.name ? nil : item.name
                     } label: {
