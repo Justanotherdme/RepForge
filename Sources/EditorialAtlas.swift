@@ -68,7 +68,7 @@ struct EFAtlas: View {
                 }
                 .padding(.top, 21)
 
-                EFTitle(lines: ["SEE THE", "WORK."], inverted: true)
+                EFTitle(lines: L10n.text("SEE THE|WORK.", "ZIE JE|INZET.").components(separatedBy: "|"), inverted: true)
                 Text(L10n.text("Your original anatomical muscle map, powered by logged sets.",
                                 "De originele anatomische spierkaart, gebaseerd op gelogde sets."))
                     .font(.subheadline)
