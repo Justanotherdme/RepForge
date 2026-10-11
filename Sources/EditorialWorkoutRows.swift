@@ -161,27 +161,37 @@ struct EFWorkoutExercise: View {
 
     @ViewBuilder private var previousSetSummary: some View {
         if let last = previous.last {
-            HStack {
-                Text(L10n.text("PREVIOUS", "VORIG") + "  " +
-                     AppPreferences.displayWeight(last.0).formatted(
-                        .number.precision(.fractionLength(0...2))
-                     ) + " " + AppPreferences.weightLabel + " × \(last.1)")
-                Spacer()
-                Button {
-                    if let next = sets.first(where: { !$0.completed }) {
-                        next.weightKg = last.0
-                        next.reps = last.1
-                        try? context.save()
-                        Haptics.light()
-                    }
-                } label: {
-                    Text("COPY LAST ↗").foregroundStyle(EF.ice)
-                }
-            }
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
-            .foregroundStyle(EF.ice.opacity(0.8))
-            .frame(minHeight: 46)
+            previousSetRow(last)
         }
+    }
+
+    private func previousSetRow(_ last: (Double, Int)) -> some View {
+        HStack {
+            Text(previousSetText(for: last))
+            Spacer()
+            Button {
+                copyPreviousSet(last)
+            } label: {
+                Text("COPY LAST ↗").foregroundStyle(EF.ice)
+            }
+        }
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundStyle(EF.ice.opacity(0.8))
+        .frame(minHeight: 46)
+    }
+
+    private func previousSetText(for last: (Double, Int)) -> String {
+        let weight: Double = AppPreferences.displayWeight(last.0)
+        let formattedWeight = weight.formatted(.number.precision(.fractionLength(0...2)))
+        return "\(L10n.text("PREVIOUS", "VORIG"))  \(formattedWeight) \(AppPreferences.weightLabel) × \(last.1)"
+    }
+
+    private func copyPreviousSet(_ last: (Double, Int)) {
+        guard let next = sets.first(where: { !$0.completed }) else { return }
+        next.weightKg = last.0
+        next.reps = last.1
+        try? context.save()
+        Haptics.light()
     }
 
     private func heading(_ value: String) -> some View {
