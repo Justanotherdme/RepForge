@@ -11,58 +11,90 @@ struct EFSessionLauncher: View {
     let launch: (WorkoutSession) -> Void
     @AppStorage("activeGymID") private var gymID = GymProfileStore.defaultID
 
+    @State private var showTemplateEditor = false
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    EFEyebrow(value: "READY WHEN YOU ARE")
-                    EFTitle(lines: ["LET'S", "TRAIN."])
-                    Text(L10n.text("Your next session is one tap away.",
-                                    "Je volgende training begint met één tik."))
-                        .font(.subheadline).foregroundStyle(EF.faint)
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    EFPageHeading(
+                        title: L10n.text("Start a workout", "Start een training"),
+                        subtitle: L10n.text("Choose how you want to train today.",
+                                            "Kies hoe je vandaag wilt trainen.")
+                    )
                     if let running = sessions.first(where: { $0.endedAt == nil }) {
-                        EFAction(title: L10n.text("RESUME ACTIVE WORKOUT", "HERVAT TRAINING"),
-                                 symbol: "play.fill") {
+                        Button {
                             launch(running)
                             dismiss()
+                        } label: {
+                            EFLinkTile(symbol: "play.circle.fill",
+                                       title: L10n.text("Resume active workout", "Hervat actieve training"),
+                                       subtitle: running.title)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    EFEyebrow(value: "START SOMETHING NEW").padding(.top, 9)
+                    Button { source = 0 } label: {
+                        EFLinkTile(symbol: "rectangle.stack",
+                                   title: L10n.text("Choose a template", "Kies een template"),
+                                   subtitle: "Start from one of your saved routines")
+                    }
+                    .buttonStyle(.plain)
+                    Button { showTemplateEditor = true } label: {
+                        EFLinkTile(symbol: "square.and.pencil",
+                                   title: L10n.text("Create new template", "Nieuw template maken"),
+                                   subtitle: "Build, customize and save a workout")
+                    }
+                    .buttonStyle(.plain)
+                    Button { startEmpty() } label: {
+                        EFLinkTile(symbol: "bolt.fill",
+                                   title: L10n.text("Quick workout", "Snelle training"),
+                                   subtitle: "Start empty and add exercises as you go")
+                    }
+                    .buttonStyle(.plain)
+                    HStack {
+                        EFSection(title: "TEMPLATES")
+                        Spacer(minLength: 0)
+                        Button { showTemplateEditor = true } label: {
+                            Label("Create", systemImage: "plus")
+                                .font(.caption.bold()).foregroundStyle(EF.cobalt)
                         }
                     }
-                    EFAction(title: L10n.text("START EMPTY WORKOUT", "START LEGE TRAINING"),
-                             symbol: "plus", orange: true) {
-                        let session = WorkoutSession(
-                            title: L10n.text("New workout", "Nieuwe training"),
-                            gymID: gymID
-                        )
-                        context.insert(session)
-                        try? context.save()
-                        launch(session)
-                        dismiss()
-                    }
-                    Picker("Source", selection: $source) {
-                        Text(L10n.text("My routines", "Mijn schema's")).tag(0)
+                    .padding(.top, 12)
+                    Picker("Workout source", selection: $source) {
+                        Text(L10n.text("My templates", "Mijn templates")).tag(0)
                         Text(L10n.text("Workout library", "Workouts")).tag(1)
                     }
                     .pickerStyle(.segmented)
-                    .padding(.top, 14)
-                    TextField(L10n.text("Search", "Zoek"), text: $query)
-                        .padding(.vertical, 14)
-                        .overlay(alignment: .bottom) { EFRule() }
-
+                    HStack {
+                        Image(systemName: "magnifyingglass").foregroundStyle(EF.faint)
+                        TextField(L10n.text("Search templates", "Zoek templates"), text: $query)
+                            .textInputAutocapitalization(.never)
+                    }
+                    .padding(14)
+                    .background(EF.field, in: RoundedRectangle(cornerRadius: 13))
                     if source == 0 {
-                        ForEach(templates.filter {
+                        let displayed = templates.filter {
                             query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
-                        }) { template in
+                        }
+                        if displayed.isEmpty {
+                            Text(L10n.text("No saved templates yet. Create one to reuse your workout.",
+                                           "Nog geen templates. Maak er een om trainingen te herhalen."))
+                                .font(.subheadline).foregroundStyle(EF.faint)
+                                .padding(.vertical, 14)
+                        }
+                        ForEach(displayed) { template in
                             Button { startTemplate(template) } label: {
-                                EFNumberRow(order: 1, title: template.name,
-                                            detail: "\(template.exerciseIDs.count) MOVEMENTS")
+                                EFLinkTile(symbol: "list.bullet.rectangle",
+                                           title: template.name,
+                                           subtitle: "\(template.exerciseIDs.count) exercises • Tap to start")
                             }
                             .buttonStyle(.plain)
-                            EFRule()
                         }
                     } else {
-                        ForEach(Array(CoachWorkoutLibrary.all.filter {
+                        ForEach(CoachWorkoutLibrary.all.filter {
                             query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
-                        }.enumerated()), id: \.element.id) { i, item in
+                        }) { item in
                             Button {
                                 if let session = CoachWorkoutActions.start(
                                     name: item.name, plan: item.exercises,
@@ -72,26 +104,39 @@ struct EFSessionLauncher: View {
                                     dismiss()
                                 }
                             } label: {
-                                EFNumberRow(order: i + 1, title: item.name,
-                                            detail: "~\(item.estimatedMinutes) MIN • \(item.category)")
+                                EFLinkTile(symbol: "dumbbell.fill",
+                                           title: item.name,
+                                           subtitle: "~\(item.estimatedMinutes) min • \(item.category)")
                             }
                             .buttonStyle(.plain)
-                            EFRule()
                         }
                     }
                 }
-                .padding(24)
+                .padding(20)
+                .padding(.bottom, 70)
             }
             .background(EF.paper)
             .navigationTitle(L10n.text("Start training", "Start training"))
+            .navigationBarTitleDisplayMode(.inline)
+            .tint(EF.cobalt)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.text("Close", "Sluiten")) { dismiss() }
-                        .foregroundStyle(EF.cobalt)
                 }
             }
+            .sheet(isPresented: $showTemplateEditor) { TemplateEditorView() }
         }
-        .environment(\.colorScheme, .light)
+    }
+
+    private func startEmpty() {
+        let session = WorkoutSession(
+            title: L10n.text("New workout", "Nieuwe training"),
+            gymID: gymID
+        )
+        context.insert(session)
+        try? context.save()
+        launch(session)
+        dismiss()
     }
 
     private func startTemplate(_ template: WorkoutTemplate) {
@@ -177,11 +222,9 @@ struct EFAppShell: View {
     }
 
     private func startOrResume() {
-        if let running = sessions.first(where: { $0.endedAt == nil }) {
-            presentedSession = running
-        } else {
-            showStart = true
-        }
+        // Starting is always an explicit choice. Never auto-resume Monday or
+        // any other unfinished session when tapping the global + action.
+        showStart = true
     }
     private func startPlan(_ item: CoachWorkout) {
         if let session = CoachWorkoutActions.start(

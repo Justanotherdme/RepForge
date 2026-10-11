@@ -108,7 +108,7 @@ struct EFAtlas: View {
                 breakdownList
                 EFSection(title: "90-DAY CONSISTENCY")
                     .padding(.top, 12)
-                WorkoutActivityHeatmap(sessions: scoped, lightStyle: true)
+                WorkoutActivityHeatmap(sessions: scoped, lightStyle: !EF.dark)
                 Button { showHistory = true } label: {
                     EFLinkTile(symbol: "trophy", title: L10n.text("Full history & personal records",
                                                                  "Geschiedenis en records"),
@@ -121,7 +121,7 @@ struct EFAtlas: View {
             .padding(.bottom, 110)
         }
         .background(EF.paper)
-        .environment(\.colorScheme, .light)
+        
         .sheet(isPresented: $showHistory) { HistoryView() }
     }
 

@@ -73,7 +73,7 @@ struct EFProfile: View {
                             Spacer()
                         }
                         .padding(13)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                        .background(EF.surface, in: RoundedRectangle(cornerRadius: 16))
                     }
                 }
                 .padding(20)
@@ -88,7 +88,7 @@ struct EFProfile: View {
             }
             .tint(EF.cobalt)
         }
-        .environment(\.colorScheme, .light)
+        
     }
 
     private var profileCard: some View {

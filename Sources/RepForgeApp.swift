@@ -19,7 +19,7 @@ enum AppPreferences {
     }
 
     static var appearance: String {
-        UserDefaults.standard.string(forKey: "appearance") ?? "dark"
+        UserDefaults.standard.string(forKey: "appearance") ?? "light"
     }
 
     static var themePreset: String {
@@ -276,6 +276,7 @@ enum RFTheme {
 
     static var accent: Color {
         switch AppPreferences.themePreset {
+        case "custom": return EF.cobalt
         case "emerald": return Color(red: 0.10, green: 0.78, blue: 0.48)
         case "orange": return Color(red: 1.0, green: 0.48, blue: 0.12)
         case "purple": return Color(red: 0.63, green: 0.43, blue: 1.0)
@@ -288,7 +289,7 @@ enum RFTheme {
         case "forest": return Color(red: 0.32, green: 0.78, blue: 0.38)
         case "slate": return Color(red: 0.64, green: 0.72, blue: 0.84)
         case "neon": return Color(red: 0.30, green: 1.0, blue: 0.54)
-        default: return Color(red: 0.81, green: 0.97, blue: 0.34)
+        default: return Color(red: 0.176, green: 0.342, blue: 0.980)
         }
     }
 
@@ -2727,20 +2728,19 @@ struct RootView: View {
     @State private var importMessage: String?
 
     @AppStorage("appLanguage") private var appLanguage = "en"
-    @AppStorage("appearance") private var appearance = "dark"
+    @AppStorage("appearance") private var appearance = "light"
     @AppStorage("themePreset") private var themePreset = "forge"
     @AppStorage("textSize") private var textSize = "standard"
     @AppStorage("layoutStyle") private var layoutStyle = "balanced"
     @AppStorage("measurementSystem") private var measurementSystem = "metric"
+    @AppStorage("customAccent") private var customAccent = "blue"
 
     var body: some View {
         EFAppShell(selectedTab: $tab)
         .tint(EF.cobalt)
-        // The approved concept deliberately uses light editorial planning screens.
-        // Workout and Atlas choose their own dark environment independently.
-        .preferredColorScheme(.light)
+.preferredColorScheme(appearance == "system" ? nil : (appearance == "light" ? .light : .dark))
         .dynamicTypeSize(preferredTextSize)
-        .id("\(appLanguage)-\(appearance)-\(themePreset)-\(textSize)-\(measurementSystem)-\(layoutStyle)")
+        .id("\(appLanguage)-\(appearance)-\(themePreset)-\(customAccent)-\(textSize)-\(measurementSystem)-\(layoutStyle)")
         .task {
             if profiles.isEmpty {
                 context.insert(UserProfile())
@@ -7722,7 +7722,7 @@ struct ExerciseDetailView: View {
             .padding(.bottom, 90)
         }
         .background(EF.paper)
-        .environment(\.colorScheme, .light)
+        
         .tint(EF.cobalt)
         .navigationTitle(exercise.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -9048,67 +9048,94 @@ struct EditProfileView: View {
 
 struct ThemeSelector: View {
     @Binding var selection: String
+    @AppStorage("appearance") private var appearance = "light"
+    @AppStorage("customAccent") private var customAccent = "blue"
 
-    private let themes: [(id: String, name: String, bg: Color, card: Color, accent: Color)] = [
-        ("forge", "Forge Blue", Color(red: 0.055, green: 0.070, blue: 0.078), Color(red: 0.105, green: 0.135, blue: 0.150), Color(red: 0.18, green: 0.63, blue: 1.0)),
-        ("oled", "OLED", .black, Color(red: 0.055, green: 0.055, blue: 0.060), Color(red: 0.18, green: 0.63, blue: 1.0)),
-        ("graphite", "Graphite", Color(red: 0.075, green: 0.075, blue: 0.082), Color(red: 0.125, green: 0.125, blue: 0.135), Color(red: 0.18, green: 0.63, blue: 1.0)),
-        ("navy", "Navy", Color(red: 0.025, green: 0.055, blue: 0.095), Color(red: 0.070, green: 0.105, blue: 0.155), Color(red: 0.18, green: 0.63, blue: 1.0)),
-        ("emerald", "Emerald", Color(red: 0.025, green: 0.080, blue: 0.065), Color(red: 0.055, green: 0.145, blue: 0.110), Color(red: 0.10, green: 0.78, blue: 0.48)),
-        ("orange", "Orange", Color(red: 0.105, green: 0.055, blue: 0.025), Color(red: 0.175, green: 0.095, blue: 0.045), Color(red: 1.0, green: 0.48, blue: 0.12)),
-        ("purple", "Purple", Color(red: 0.070, green: 0.040, blue: 0.105), Color(red: 0.125, green: 0.075, blue: 0.180), Color(red: 0.63, green: 0.43, blue: 1.0)),
-        ("midnight", "Midnight", Color(red: 0.012, green: 0.020, blue: 0.055), Color(red: 0.038, green: 0.055, blue: 0.115), Color(red: 0.40, green: 0.56, blue: 1.0)),
-        ("cyan", "Arctic Cyan", Color(red: 0.018, green: 0.070, blue: 0.082), Color(red: 0.040, green: 0.130, blue: 0.148), Color(red: 0.08, green: 0.82, blue: 0.94)),
-        ("teal", "Deep Teal", Color(red: 0.018, green: 0.065, blue: 0.060), Color(red: 0.038, green: 0.125, blue: 0.110), Color(red: 0.08, green: 0.80, blue: 0.68)),
-        ("crimson", "Crimson", Color(red: 0.085, green: 0.022, blue: 0.032), Color(red: 0.155, green: 0.050, blue: 0.065), Color(red: 1.0, green: 0.24, blue: 0.36)),
-        ("rose", "Rose", Color(red: 0.082, green: 0.030, blue: 0.064), Color(red: 0.150, green: 0.060, blue: 0.120), Color(red: 1.0, green: 0.36, blue: 0.68)),
-        ("gold", "Gold", Color(red: 0.095, green: 0.070, blue: 0.020), Color(red: 0.160, green: 0.115, blue: 0.035), Color(red: 1.0, green: 0.72, blue: 0.18)),
-        ("forest", "Forest", Color(red: 0.030, green: 0.060, blue: 0.035), Color(red: 0.060, green: 0.120, blue: 0.070), Color(red: 0.32, green: 0.78, blue: 0.38)),
-        ("slate", "Slate", Color(red: 0.045, green: 0.052, blue: 0.065), Color(red: 0.095, green: 0.110, blue: 0.135), Color(red: 0.64, green: 0.72, blue: 0.84)),
-        ("neon", "Neon", Color(red: 0.018, green: 0.028, blue: 0.024), Color(red: 0.035, green: 0.085, blue: 0.060), Color(red: 0.30, green: 1.0, blue: 0.54))
+    private let options: [(id: String, label: String, background: Color, surface: Color, tint: Color, mode: String)] = [
+        ("forge", "Light", Color(red: 0.97, green: 0.98, blue: 0.97), .white,
+         Color(red: 0.18, green: 0.34, blue: 0.98), "light"),
+        ("dark", "Dark", Color(red: 0.055, green: 0.079, blue: 0.12),
+         Color(red: 0.102, green: 0.137, blue: 0.19),
+         Color(red: 0.18, green: 0.34, blue: 0.98), "dark"),
+        ("oled", "OLED", .black, Color(white: 0.07),
+         Color(red: 0.18, green: 0.34, blue: 0.98), "dark"),
+        ("graphite", "Graphite", Color(red: 0.10, green: 0.115, blue: 0.135),
+         Color(red: 0.16, green: 0.18, blue: 0.205),
+         Color(red: 0.18, green: 0.34, blue: 0.98), "dark"),
+        ("navy", "Navy", Color(red: 0.025, green: 0.055, blue: 0.106),
+         Color(red: 0.070, green: 0.115, blue: 0.18),
+         Color(red: 0.18, green: 0.34, blue: 0.98), "dark"),
+        ("purple", "Amethyst", Color(red: 0.086, green: 0.055, blue: 0.136),
+         Color(red: 0.15, green: 0.10, blue: 0.21),
+         Color(red: 0.65, green: 0.46, blue: 1.0), "dark"),
+        ("forest", "Forest", Color(red: 0.039, green: 0.089, blue: 0.078),
+         Color(red: 0.07, green: 0.14, blue: 0.12),
+         Color(red: 0.19, green: 0.76, blue: 0.46), "dark"),
+        ("custom", "Custom", Color(red: 0.97, green: 0.98, blue: 0.97), .white,
+         Color(red: 0.18, green: 0.34, blue: 0.98), "light")
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(L10n.text("Theme", "Thema"))
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(themes, id: \.id) { theme in
-                        Button {
-                            selection = theme.id
-                            Haptics.light()
-                        } label: {
-                            VStack(spacing: 7) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(theme.bg)
-                                        .frame(width: 72, height: 48)
-
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(theme.card)
-                                        .frame(width: 48, height: 28)
-
-                                    Circle()
-                                        .fill(theme.accent)
-                                        .frame(width: 13, height: 13)
-                                }
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(selection == theme.id ? theme.accent : Color.secondary.opacity(0.25), lineWidth: selection == theme.id ? 2.5 : 1)
-                                )
-
-                                Text(theme.name)
-                                    .font(.caption2)
-                                    .foregroundStyle(.primary)
+        VStack(alignment: .leading, spacing: 14) {
+            Text(L10n.text("Theme", "Thema")).font(.headline)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 12)], spacing: 12) {
+                ForEach(options, id: \.id) { item in
+                    Button {
+                        selection = item.id
+                        appearance = item.mode
+                        Haptics.light()
+                    } label: {
+                        VStack(spacing: 7) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12).fill(item.background)
+                                RoundedRectangle(cornerRadius: 7).fill(item.surface)
+                                    .frame(width: 55, height: 29)
+                                Circle().fill(item.tint).frame(width: 12, height: 12)
                             }
+                            .frame(height: 60)
+                            .overlay(RoundedRectangle(cornerRadius: 12)
+                                .stroke(selection == item.id ? EF.cobalt : EF.rule,
+                                        lineWidth: selection == item.id ? 3 : 1))
+                            Text(item.label).font(.caption2.weight(.semibold))
+                                .foregroundStyle(.primary)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selection == item.id ? .isSelected : [])
                 }
+            }
+            if selection == "custom" {
+                Text("Accent color").font(.subheadline.weight(.semibold))
+                HStack(spacing: 17) {
+                    accent("blue", .blue)
+                    accent("purple", .purple)
+                    accent("green", .green)
+                    accent("orange", .orange)
+                    accent("pink", .pink)
+                }
+                Picker("Custom appearance", selection: $appearance) {
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                }
+                .pickerStyle(.segmented)
             }
         }
         .padding(.vertical, 4)
+    }
+    private func accent(_ id: String, _ color: Color) -> some View {
+        Button {
+            customAccent = id
+            Haptics.light()
+        } label: {
+            Circle().fill(color).frame(width: 34, height: 34)
+                .overlay {
+                    if customAccent == id {
+                        Image(systemName: "checkmark").font(.caption.bold()).foregroundStyle(.white)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(id)
     }
 }
 
@@ -9394,7 +9421,7 @@ struct SettingsView: View {
 
     @AppStorage("appLanguage") private var appLanguage = "en"
     @AppStorage("measurementSystem") private var measurementSystem = "metric"
-    @AppStorage("appearance") private var appearance = "dark"
+    @AppStorage("appearance") private var appearance = "light"
     @AppStorage("themePreset") private var themePreset = "forge"
     @AppStorage("textSize") private var textSize = "standard"
     @AppStorage("layoutStyle") private var layoutStyle = "balanced"
@@ -9822,7 +9849,6 @@ struct SettingsView: View {
             }
             .scrollContentBackground(.hidden)
             .background(EF.paper)
-            .environment(\.colorScheme, .light)
             .tint(EF.cobalt)
             .navigationTitle(mode == .data ? L10n.text("Data & Backup", "Gegevens en back-ups") : L10n.settings)
             .fileExporter(

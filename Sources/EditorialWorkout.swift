@@ -33,77 +33,10 @@ struct EFWorkout: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 19) {
+                LazyVStack(alignment: .leading, spacing: 17) {
                     toolbar
-                    HStack(alignment: .lastTextBaseline) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            EFEyebrow(value: "● LIVE SESSION", light: true)
-                            Text(session.title.uppercased())
-                                .font(.system(size: 29, weight: .black, design: .rounded))
-                                .tracking(-1.4)
-                                .foregroundStyle(EF.white)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .accessibilityAddTraits(.isHeader)
-                        }
-                        Spacer()
-                        TimelineView(.periodic(from: .now, by: 1)) { _ in
-                            Text(durationString(session.duration))
-                                .font(.system(size: 25, weight: .heavy, design: .rounded))
-                                .monospacedDigit()
-                                .foregroundStyle(EF.white)
-                        }
-                    }
-                    HStack {
-                        Text("\(complete) / \(total) SETS LOGGED")
-                        Spacer()
-                        Text("\(Int(percent * 100))% COMPLETE")
-                    }
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(EF.ice)
-                    GeometryReader { proxy in
-                        ZStack(alignment: .leading) {
-                            Rectangle().fill(EF.nightField)
-                            Rectangle().fill(EF.mint).frame(width: proxy.size.width * percent)
-                        }
-                    }
-                    .frame(height: 6)
-
-                    HStack {
-                        EFEyebrow(value: "EXERCISE QUEUE", light: true)
-                        Spacer()
-                        Button { showAdvanced = true } label: {
-                            Text(L10n.text("ALL EXERCISES →", "ALLE OEFENINGEN →"))
-                                .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                                .foregroundStyle(EF.ice)
-                                .frame(minHeight: 44)
-                        }
-                    }
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 7) {
-                            ForEach(Array(exercises.enumerated()), id: \.element.id) { index, log in
-                                Button {
-                                    UIApplication.shared.sendAction(
-                                        #selector(UIResponder.resignFirstResponder),
-                                        to: nil, from: nil, for: nil
-                                    )
-                                    selection = index
-                                } label: {
-                                    Text("\(String(format: "%02d", index + 1)) / " +
-                                         (ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise").uppercased())
-                                        .font(.system(size: 10, weight: .heavy))
-                                        .lineLimit(1)
-                                        .padding(.horizontal, 13)
-                                        .frame(minHeight: 44)
-                                        .foregroundStyle(selection == index ? EF.night : EF.ice)
-                                        .background(selection == index ? EF.white : EF.nightPanel)
-                                        .overlay(Rectangle().stroke(EF.ice.opacity(0.25)))
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityAddTraits(selection == index ? .isSelected : [])
-                            }
-                        }
-                    }
-
+                    sessionOverview
+                    exerciseQueue
                     if let log = selected {
                         EFWorkoutExercise(
                             log: log,
@@ -114,28 +47,9 @@ struct EFWorkout: View {
                         )
                         .id(log.id)
                     } else {
-                        VStack(alignment: .leading, spacing: 10) {
-                            EFSection(title: "NO EXERCISES YET", dark: true)
-                            Text(L10n.text("Add your first exercise to begin.",
-                                            "Voeg een oefening toe om te beginnen."))
-                                .foregroundStyle(EF.ice)
-                        }
-                        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(EF.nightPanel)
+                        emptyState
                     }
-
-                    Button {
-                        pickerIDs = []
-                        chooseExercises = true
-                    } label: {
-                        Label(L10n.addExercise.uppercased(), systemImage: "plus")
-                            .font(.system(size: 12, weight: .heavy))
-                            .foregroundStyle(EF.ice)
-                            .frame(maxWidth: .infinity, minHeight: 55)
-                            .overlay(Rectangle().stroke(EF.ice.opacity(0.6)))
-                    }
-                    .buttonStyle(.plain)
-
+                    addExerciseButton
                     Button {
                         noteDraft = session.note ?? ""
                         editNote = true
@@ -143,15 +57,16 @@ struct EFWorkout: View {
                         Label(L10n.text("Workout notes", "Trainingsnotities"),
                               systemImage: "square.and.pencil")
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(EF.ice)
-                            .frame(minHeight: 45)
+                            .foregroundStyle(EF.cobalt)
+                            .frame(maxWidth: .infinity, minHeight: 48)
                     }
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 22)
-                .padding(.top, 18)
-                .padding(.bottom, 24)
+                .padding(.horizontal, 18)
+                .padding(.top, 16)
+                .padding(.bottom, 100)
             }
-            .background(EF.night)
+            .background(EF.paper)
             .scrollDismissesKeyboard(.interactively)
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -215,33 +130,164 @@ struct EFWorkout: View {
             .onAppear { UIApplication.shared.isIdleTimerDisabled = keepScreenAwake }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         }
-        .environment(\.colorScheme, .dark)
-        .tint(EF.ice)
+        .tint(EF.cobalt)
     }
 
     private var toolbar: some View {
         HStack {
-            Button {
-                dismiss()
-            } label: {
-                Text("× CLOSE")
-                    .font(.system(size: 11, weight: .heavy))
-                    .foregroundStyle(EF.white)
-                    .padding(.horizontal, 13)
-                    .frame(minHeight: 45)
-                    .overlay(Rectangle().stroke(EF.ice.opacity(0.7)))
+            Button { dismiss() } label: {
+                Label(L10n.text("Back", "Terug"), systemImage: "chevron.left")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(EF.cobalt)
+                    .frame(minHeight: 44)
             }
             .accessibilityLabel(L10n.text("Close, keep workout open", "Sluit, behoud training"))
             Spacer()
+            Text("LIVE WORKOUT")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(EF.faint)
+            Spacer()
             Button { showFinish = true } label: {
-                Text("FINISH ↗")
-                    .font(.system(size: 11, weight: .heavy))
-                    .foregroundStyle(EF.ice)
-                    .padding(.horizontal, 13)
-                    .frame(minHeight: 45)
-                    .overlay(Rectangle().stroke(EF.ice.opacity(0.7)))
+                Text(L10n.text("Finish", "Afronden"))
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 15)
+                    .frame(minHeight: 40)
+                    .background(EF.cobalt, in: Capsule())
             }
         }
+    }
+
+    private var sessionOverview: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    EFEyebrow(value: "SESSION IN PROGRESS")
+                    Text(session.title)
+                        .font(.system(size: 30, weight: .black, design: .rounded))
+                        .tracking(-1)
+                        .foregroundStyle(EF.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                }
+                Spacer(minLength: 0)
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    VStack(alignment: .trailing, spacing: 5) {
+                        Text(durationString(session.duration))
+                            .font(.system(size: 19, weight: .heavy, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(EF.cobalt)
+                        Text("DURATION")
+                            .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                            .foregroundStyle(EF.faint)
+                    }
+                }
+            }
+            HStack(spacing: 8) {
+                statChip("\(exercises.count) EXERCISES", "dumbbell")
+                statChip("\(complete) / \(total) SETS", "checkmark.circle")
+                Spacer(minLength: 0)
+                Text("\(Int(percent * 100))%")
+                    .font(.subheadline.weight(.bold)).foregroundStyle(EF.cobalt)
+            }
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(EF.field)
+                    Capsule().fill(EF.cobalt)
+                        .frame(width: proxy.size.width * percent)
+                }
+            }
+            .frame(height: 7)
+            .accessibilityLabel("\(Int(percent * 100)) percent complete")
+        }
+        .padding(19)
+        .background(EF.surface, in: RoundedRectangle(cornerRadius: 21))
+        .overlay(RoundedRectangle(cornerRadius: 21).stroke(EF.rule))
+    }
+    private func statChip(_ value: String, _ symbol: String) -> some View {
+        Label(value, systemImage: symbol)
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .foregroundStyle(EF.faint)
+    }
+
+    private var exerciseQueue: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                EFSection(title: L10n.text("Exercise queue", "Oefeningen"),
+                          detail: "\(exercises.isEmpty ? 0 : selection + 1) / \(exercises.count)")
+                Spacer(minLength: 0)
+                Button { showAdvanced = true } label: {
+                    Label(L10n.text("All", "Alles"), systemImage: "list.bullet")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(EF.cobalt)
+                        .frame(minHeight: 44)
+                }
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(Array(exercises.enumerated()), id: \.element.id) { index, log in
+                        Button {
+                            UIApplication.shared.sendAction(
+                                #selector(UIResponder.resignFirstResponder),
+                                to: nil, from: nil, for: nil
+                            )
+                            selection = index
+                        } label: {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("EXERCISE \(index + 1)")
+                                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                                    .foregroundStyle(selection == index ? .white.opacity(0.77) : EF.faint)
+                                Text(ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise")
+                                    .font(.subheadline.weight(.bold))
+                                    .foregroundStyle(selection == index ? .white : EF.ink)
+                                    .lineLimit(1)
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(width: 190, height: 68, alignment: .leading)
+                            .background(selection == index ? EF.cobalt : EF.surface,
+                                        in: RoundedRectangle(cornerRadius: 14))
+                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(EF.rule.opacity(0.65)))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(selection == index ? .isSelected : [])
+                    }
+                }
+            }
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            EFSection(title: L10n.text("No exercises yet", "Nog geen oefeningen"))
+            Text(L10n.text("Add an exercise to build your workout.",
+                           "Voeg een oefening toe aan je training."))
+                .foregroundStyle(EF.faint)
+            Button {
+                pickerIDs = []
+                chooseExercises = true
+            } label: {
+                Label(L10n.addExercise, systemImage: "plus")
+                    .frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .buttonStyle(.borderedProminent).tint(EF.cobalt)
+        }
+        .padding(20)
+        .background(EF.surface, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    private var addExerciseButton: some View {
+        Button {
+            pickerIDs = []
+            chooseExercises = true
+        } label: {
+            Label(L10n.addExercise, systemImage: "plus")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(EF.cobalt)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(EF.cobalt.opacity(0.08), in: RoundedRectangle(cornerRadius: 15))
+                .overlay(RoundedRectangle(cornerRadius: 15).stroke(EF.cobalt.opacity(0.27)))
+        }
+        .buttonStyle(.plain)
     }
 
     private func appendSelected() {
@@ -307,30 +353,32 @@ struct EFRestStrip: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { timeline in
             let left = max(0, Int(ceil(end.timeIntervalSince(timeline.date))))
-            HStack(spacing: 15) {
-                VStack(alignment: .leading, spacing: 4) {
-                    EFEyebrow(value: "REST TIMER", light: true)
-                    Text(String(format: "%02d:%02d", left / 60, left % 60))
-                        .font(.system(size: 26, weight: .heavy, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(EF.white)
+            VStack(spacing: 10) {
+                HStack(spacing: 14) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        EFEyebrow(value: "REST TIMER")
+                        Text(String(format: "%02d:%02d", left / 60, left % 60))
+                            .font(.system(size: 25, weight: .heavy, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(EF.cobalt)
+                    }
+                    Spacer()
+                    Button { adjust(-15) } label: { Text("−15s") }
+                    Button { adjust(15) } label: { Text("+15s") }
+                    Button(action: skip) {
+                        Text("SKIP").foregroundStyle(EF.cobalt)
+                    }
                 }
-                Spacer()
-                Button { adjust(-15) } label: { Text("−15") }
-                Button { adjust(15) } label: { Text("+15") }
-                Button(action: skip) {
-                    Text("SKIP").foregroundStyle(EF.mint)
-                }
+                .font(.system(size: 12, weight: .heavy))
+                .foregroundStyle(EF.ink)
+                .buttonStyle(.bordered)
             }
-            .font(.system(size: 12, weight: .heavy))
-            .foregroundStyle(EF.white)
-            .buttonStyle(.bordered)
-            .padding(.horizontal, 20)
-            .frame(minHeight: 80)
-            .background(Color(red: 0.11, green: 0.20, blue: 0.29))
+            .padding(.horizontal, 19)
+            .padding(.vertical, 10)
+            .background(EF.surface)
             .overlay(alignment: .top) {
                 GeometryReader { proxy in
-                    Rectangle().fill(EF.mint)
+                    Rectangle().fill(EF.cobalt)
                         .frame(width: proxy.size.width * min(1, Double(left) / Double(max(1, duration))),
                                height: 3)
                 }

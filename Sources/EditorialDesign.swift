@@ -1,21 +1,84 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
 /// Approved six-screen concept: paper/ink/cobalt planning, ink/navy workout,
 /// orange primary action. Design tokens are independent of old RFTheme cards.
 enum EF {
-    static let paper = Color(red: 0.952, green: 0.955, blue: 0.928)
-    static let ink = Color(red: 0.043, green: 0.078, blue: 0.141)
-    static let cobalt = Color(red: 0.176, green: 0.342, blue: 0.980)
-    static let orange = Color(red: 0.985, green: 0.417, blue: 0.219)
-    static let faint = Color(red: 0.410, green: 0.454, blue: 0.518)
-    static let rule = Color(red: 0.788, green: 0.811, blue: 0.814)
-    static let night = Color(red: 0.036, green: 0.074, blue: 0.130)
-    static let nightPanel = Color(red: 0.060, green: 0.132, blue: 0.220)
-    static let nightField = Color(red: 0.085, green: 0.174, blue: 0.289)
-    static let ice = Color(red: 0.46, green: 0.72, blue: 1.0)
-    static let mint = Color(red: 0.32, green: 0.95, blue: 0.76)
-    static let white = Color(red: 0.96, green: 0.98, blue: 1.0)
+    // Shared semantic palette. The app root observes these settings and
+    // re-renders every editorial destination when the theme changes.
+    static var dark: Bool {
+        let choice = AppPreferences.appearance
+        return choice == "dark" ||
+            (choice == "system" && UITraitCollection.current.userInterfaceStyle == .dark)
+    }
+
+    static var paper: Color {
+        guard dark else { return Color(red: 0.973, green: 0.978, blue: 0.974) }
+        switch AppPreferences.themePreset {
+        case "oled": return .black
+        case "graphite", "slate": return Color(red: 0.10, green: 0.115, blue: 0.135)
+        case "navy", "midnight": return Color(red: 0.025, green: 0.055, blue: 0.106)
+        case "purple": return Color(red: 0.086, green: 0.055, blue: 0.136)
+        case "forest", "emerald": return Color(red: 0.039, green: 0.089, blue: 0.078)
+        case "orange": return Color(red: 0.12, green: 0.068, blue: 0.056)
+        default: return Color(red: 0.055, green: 0.079, blue: 0.12)
+        }
+    }
+
+    static var surface: Color {
+        guard dark else { return .white }
+        switch AppPreferences.themePreset {
+        case "oled": return Color(red: 0.06, green: 0.06, blue: 0.065)
+        case "graphite", "slate": return Color(red: 0.16, green: 0.18, blue: 0.205)
+        case "navy", "midnight": return Color(red: 0.070, green: 0.115, blue: 0.18)
+        case "purple": return Color(red: 0.15, green: 0.10, blue: 0.21)
+        case "forest", "emerald": return Color(red: 0.07, green: 0.14, blue: 0.12)
+        default: return Color(red: 0.102, green: 0.137, blue: 0.19)
+        }
+    }
+
+    static var ink: Color {
+        dark ? Color(red: 0.96, green: 0.975, blue: 1) :
+               Color(red: 0.043, green: 0.078, blue: 0.141)
+    }
+    static var cobalt: Color {
+        switch AppPreferences.themePreset {
+        case "custom":
+            switch UserDefaults.standard.string(forKey: "customAccent") ?? "blue" {
+            case "purple": return Color(red: 0.60, green: 0.42, blue: 0.96)
+            case "green": return Color(red: 0.16, green: 0.72, blue: 0.43)
+            case "orange": return Color(red: 0.99, green: 0.40, blue: 0.20)
+            case "pink": return Color(red: 0.93, green: 0.36, blue: 0.56)
+            default: return Color(red: 0.14, green: 0.36, blue: 0.98)
+            }
+        case "purple": return Color(red: 0.65, green: 0.46, blue: 1.0)
+        case "forest", "emerald": return Color(red: 0.19, green: 0.76, blue: 0.46)
+        case "orange": return Color(red: 0.99, green: 0.48, blue: 0.24)
+        case "cyan": return Color(red: 0.10, green: 0.75, blue: 0.86)
+        case "teal": return Color(red: 0.10, green: 0.70, blue: 0.66)
+        case "crimson", "rose": return Color(red: 0.95, green: 0.35, blue: 0.52)
+        case "gold": return Color(red: 0.96, green: 0.70, blue: 0.21)
+        default: return Color(red: 0.176, green: 0.342, blue: 0.980)
+        }
+    }
+    static var orange: Color { Color(red: 0.985, green: 0.417, blue: 0.219) }
+    static var faint: Color {
+        dark ? Color(red: 0.69, green: 0.74, blue: 0.82) :
+               Color(red: 0.410, green: 0.454, blue: 0.518)
+    }
+    static var rule: Color { dark ? .white.opacity(0.17) : Color(red: 0.825, green: 0.848, blue: 0.86) }
+    // Hero panels intentionally retain stronger contrast inside light layouts.
+    static var night: Color {
+        dark ? surface : Color(red: 0.036, green: 0.074, blue: 0.130)
+    }
+    static var nightPanel: Color { dark ? surface : Color(red: 0.060, green: 0.132, blue: 0.220) }
+    static var nightField: Color { dark ? paper : Color(red: 0.085, green: 0.174, blue: 0.289) }
+    static var ice: Color { dark ? Color(red: 0.73, green: 0.82, blue: 0.99) :
+                                   Color(red: 0.46, green: 0.72, blue: 1.0) }
+    static var mint: Color { Color(red: 0.32, green: 0.85, blue: 0.68) }
+    static var white: Color { Color(red: 0.96, green: 0.98, blue: 1.0) }
+    static var field: Color { dark ? paper : Color(red: 0.935, green: 0.948, blue: 0.97) }
 }
 struct EFEyebrow: View {
     let value: String
@@ -94,7 +157,7 @@ struct EFAction: View {
             }
             .padding(.horizontal, 17)
             .frame(minHeight: 56)
-            .foregroundStyle(orange ? EF.ink : .white)
+            .foregroundStyle(orange ? Color(red: 0.043, green: 0.078, blue: 0.141) : .white)
             .background(orange ? EF.orange : EF.cobalt)
         }
         .buttonStyle(EFPressStyle())
@@ -172,7 +235,7 @@ struct EFNavigation: View {
             Button(action: start) {
                 Image(systemName: "plus")
                     .font(.title3.weight(.heavy))
-                    .foregroundStyle(EF.ink)
+                    .foregroundStyle(Color(red: 0.043, green: 0.078, blue: 0.141))
                     .frame(width: 56, height: 56)
                     .background(EF.orange, in: Circle())
             }
