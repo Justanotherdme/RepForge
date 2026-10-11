@@ -7,8 +7,7 @@ struct EFPlans: View {
     @State private var category = "All"
     @State private var query = ""
     @State private var section = 0
-    @State private var showThreeWeeks = false
-    @State private var showRoutines = false
+    @StateObject private var personalPlan = ProgramPlanStore()
     @State private var savedName: String?
     @State private var scheduled: ScheduledWorkoutRecord?
     @AppStorage("activeGymID") private var gymID = GymProfileStore.defaultID
@@ -26,10 +25,10 @@ struct EFPlans: View {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     EFPageHeading(title: L10n.text("Training Plans", "Trainingsschema's"),
                                   subtitle: "Structured training, ready to log.")
-                    searchField
+                    if section != 2 { searchField }
                     sectionPicker
                     if section == 2 {
-                        threeWeekPanel
+                        EFPersonalThreeWeekProgram(plan: personalPlan)
                     } else {
                         if section == 0 { featuredCard }
                         if section == 1 { routinesPanel }
@@ -44,8 +43,6 @@ struct EFPlans: View {
             .background(EF.paper)
             .toolbar(.hidden, for: .navigationBar)
             .tint(EF.cobalt)
-            .sheet(isPresented: $showThreeWeeks) { TrainingHubView() }
-            .sheet(isPresented: $showRoutines) { StartWorkoutView() }
             .sheet(item: $scheduled) { record in
                 ScheduleWorkoutSheet(seed: record) { updated in
                     WorkoutScheduleStore.update(updated)
@@ -135,35 +132,15 @@ struct EFPlans: View {
     }
 
     private var routinesPanel: some View {
-        Button { showRoutines = true } label: {
-            EFLinkTile(symbol: "calendar", title: "My routines and schedule",
-                       subtitle: "Create, edit, schedule and share your splits")
+        NavigationLink {
+            EFSavedRoutinesView()
+        } label: {
+            EFLinkTile(symbol: "calendar",
+                       title: L10n.text("My routines and schedule", "Mijn schema's en agenda"),
+                       subtitle: L10n.text("Create, edit, schedule and share your splits",
+                                           "Maak, bewerk, plan en deel je schema's"))
         }
         .buttonStyle(.plain)
-    }
-
-    private var threeWeekPanel: some View {
-        VStack(alignment: .leading, spacing: 17) {
-            EFEyebrow(value: "03 / YOUR PROGRAM")
-            Text("YOUR 3-WEEK\nBLUEPRINT")
-                .font(.system(size: 30, weight: .black, design: .rounded))
-                .foregroundStyle(EF.ink)
-            Text(L10n.text("Your fully editable plan and weekly schedule.",
-                           "Jouw bewerkbare trainingsschema en weekplanning."))
-                .font(.subheadline).foregroundStyle(EF.faint)
-            Button { showThreeWeeks = true } label: {
-                Label("OPEN MY PROGRAM", systemImage: "arrow.up.right")
-                    .frame(maxWidth: .infinity, minHeight: 54)
-                    .font(.subheadline.weight(.bold))
-            }
-            .buttonStyle(.borderedProminent).tint(EF.cobalt)
-            Button { showRoutines = true } label: {
-                EFLinkTile(symbol: "list.bullet.rectangle", title: "My routines",
-                           subtitle: "Manage custom schedules and training days")
-            }
-        }
-        .padding(19)
-        .background(EF.surface, in: RoundedRectangle(cornerRadius: 19))
     }
 
     private var workoutLibrary: some View {
