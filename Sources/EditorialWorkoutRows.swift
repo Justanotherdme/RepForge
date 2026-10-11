@@ -12,6 +12,7 @@ struct EFWorkoutExercise: View {
     @State private var previous: [(Double, Int)] = []
     @State private var showOptions = false
     @State private var confirmDelete = false
+    @State private var removingSets = false
     private var exercise: ExerciseDefinition? { ExerciseCatalog.find(log.exerciseID) }
     private var sets: [WorkoutSet] { log.sets.sorted { $0.order < $1.order } }
     private var isCardio: Bool { exercise?.movement == "cardio" }
@@ -126,16 +127,18 @@ struct EFWorkoutExercise: View {
     private var setRows: some View {
         ForEach(sets) { set in
             if isCardio {
-                EFCardioLine(set: set, canDelete: sets.count > 1,
+                EFCardioLine(set: set, canDelete: true,
                              completed: { if $0 { setCompleted() } },
-                             delete: { delete(set) })
+                             delete: { delete(set) },
+                             showDelete: removingSets)
             } else {
                 EFStrengthLine(
                     set: set,
                     previous: previous.indices.contains(set.order) ? previous[set.order] : nil,
-                    canDelete: sets.count > 1,
+                    canDelete: true,
                     completed: { if $0 { setCompleted() } },
-                    delete: { delete(set) }
+                    delete: { delete(set) },
+                    showDelete: removingSets
                 )
             }
             EFRule()
@@ -143,19 +146,36 @@ struct EFWorkoutExercise: View {
     }
 
     private var addSetButton: some View {
-        Button {
-            log.sets.append(WorkoutSet(order: sets.count))
-            try? context.save()
-            Haptics.light()
-        } label: {
-            Label(L10n.text("Add set", "Set toevoegen"), systemImage: "plus")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(EF.cobalt)
-                .frame(maxWidth: .infinity, minHeight: 50)
-                .background(EF.cobalt.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(EF.cobalt.opacity(0.25)))
+        HStack(spacing: 10) {
+            Button {
+                log.sets.append(WorkoutSet(order: sets.count))
+                try? context.save()
+                Haptics.light()
+            } label: {
+                Label(L10n.text("Add set", "Set toevoegen"), systemImage: "plus")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(EF.cobalt)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(EF.cobalt.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            Button {
+                removingSets.toggle()
+                Haptics.light()
+            } label: {
+                Label(removingSets
+                      ? L10n.done
+                      : L10n.text("Remove sets", "Sets verwijderen"),
+                      systemImage: removingSets ? "checkmark" : "minus.circle")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(removingSets ? EF.cobalt : EF.ink)
+                    .frame(minWidth: 116, minHeight: 50)
+                    .background(EF.field, in: RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(L10n.text("Show a delete control beside each set.",
+                                        "Toon een verwijderknop bij elke set."))
         }
-        .buttonStyle(.plain)
         .padding(.top, 15)
     }
 
@@ -200,10 +220,12 @@ struct EFWorkoutExercise: View {
             .foregroundStyle(EF.faint)
     }
     private func delete(_ set: WorkoutSet) {
-        guard log.sets.count > 1 else { return }
+        guard log.sets.contains(where: { $0.id == set.id }) else { return }
         log.sets.removeAll { $0.id == set.id }
+        context.delete(set)
         for (i, item) in sets.enumerated() { item.order = i }
         try? context.save()
+        Haptics.light()
     }
 }
 
@@ -214,6 +236,7 @@ struct EFStrengthLine: View {
     let canDelete: Bool
     let completed: (Bool) -> Void
     let delete: () -> Void
+    var showDelete = false
     @State private var showSetOptions = false
     @Environment(\.dynamicTypeSize) private var dynamicType
 
@@ -229,25 +252,36 @@ struct EFStrengthLine: View {
     }
     private var row: some View {
         HStack(spacing: 7) {
-            Menu {
-                Button(L10n.text("Set options", "Setopties"), systemImage: "slider.horizontal.3") {
-                    showSetOptions = true
+            if showDelete {
+                Button(role: .destructive, action: delete) {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.red)
+                        .frame(width: 28, height: 48)
                 }
-                if canDelete {
-                    Button(L10n.text("Delete set", "Set verwijderen"),
-                           systemImage: "trash", role: .destructive, action: delete)
-                }
-            } label: {
-                VStack(spacing: 2) {
-                    Text("\(set.order + 1)")
-                    if set.setType != "working" {
-                        Circle().fill(EF.orange).frame(width: 5, height: 5)
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.text("Remove set", "Set verwijderen") + " \(set.order + 1)")
+            } else {
+                Menu {
+                    Button(L10n.text("Set options", "Setopties"), systemImage: "slider.horizontal.3") {
+                        showSetOptions = true
                     }
+                    if canDelete {
+                        Button(L10n.text("Delete set", "Set verwijderen"),
+                               systemImage: "trash", role: .destructive, action: delete)
+                    }
+                } label: {
+                    VStack(spacing: 2) {
+                        Text("\(set.order + 1)")
+                        if set.setType != "working" {
+                            Circle().fill(EF.orange).frame(width: 5, height: 5)
+                        }
+                    }
+                    .font(.system(size: 12, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(EF.cobalt)
+                    .frame(width: 24, height: 48)
                 }
-                .font(.system(size: 12, weight: .heavy, design: .monospaced))
-                .foregroundStyle(EF.cobalt)
-                .frame(width: 24, height: 48)
-            }
+                }
             weightInput
             repsInput
             Button {
@@ -262,7 +296,7 @@ struct EFStrengthLine: View {
             } label: {
                 Image(systemName: set.completed ? "checkmark" : "circle")
                     .font(.headline.weight(.heavy))
-                    .foregroundStyle(set.completed ? EF.night : EF.ice)
+                    .foregroundStyle(set.completed ? Color(red: 0.04, green: 0.08, blue: 0.14) : EF.cobalt)
                     .frame(width: 44, height: 48)
                     .background(set.completed ? EF.mint : EF.field, in: RoundedRectangle(cornerRadius: 11))
                     .overlay(Circle().stroke(set.completed ? .clear : EF.rule))
@@ -305,24 +339,36 @@ struct EFCardioLine: View {
     let canDelete: Bool
     let completed: (Bool) -> Void
     let delete: () -> Void
+    var showDelete = false
     @State private var showOptions = false
 
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                Menu {
-                    Button(L10n.text("Set options", "Setopties"), systemImage: "slider.horizontal.3") {
-                        showOptions = true
+                if showDelete {
+                    Button(role: .destructive, action: delete) {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.red)
+                            .frame(width: 24, height: 48)
                     }
-                    if canDelete {
-                        Button(L10n.text("Delete", "Verwijderen"),
-                               systemImage: "trash", role: .destructive, action: delete)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.text("Remove interval", "Interval verwijderen"))
+                } else {
+                    Menu {
+                        Button(L10n.text("Set options", "Setopties"), systemImage: "slider.horizontal.3") {
+                            showOptions = true
+                        }
+                        if canDelete {
+                            Button(L10n.text("Delete", "Verwijderen"),
+                                   systemImage: "trash", role: .destructive, action: delete)
+                        }
+                    } label: {
+                        Text("\(set.order + 1)")
+                            .font(.caption.bold()).foregroundStyle(EF.faint)
+                            .frame(width: 24, height: 48)
                     }
-                } label: {
-                    Text("\(set.order + 1)")
-                        .font(.caption.bold()).foregroundStyle(EF.faint)
-                        .frame(width: 24, height: 48)
-                }
+                    }
                 DoneNumberField(value: Binding(
                     get: { (set.durationSeconds ?? 0) / 60 },
                     set: { set.durationSeconds = $0 > 0 ? $0 * 60 : nil }
@@ -346,7 +392,7 @@ struct EFCardioLine: View {
                     completed(set.completed)
                 } label: {
                     Image(systemName: set.completed ? "checkmark" : "circle")
-                        .foregroundStyle(set.completed ? EF.night : EF.ice)
+                        .foregroundStyle(set.completed ? Color(red: 0.04, green: 0.08, blue: 0.14) : EF.cobalt)
                         .frame(width: 44, height: 48)
                         .background(set.completed ? EF.mint : EF.field, in: RoundedRectangle(cornerRadius: 11))
                 }

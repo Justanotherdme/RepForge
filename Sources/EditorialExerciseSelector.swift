@@ -5,6 +5,7 @@ import SwiftUI
 struct EFExerciseSelector: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var selectedIDs: [String]
+    var onAdd: (([String]) -> Void)? = nil
     @State private var search = ""
     @State private var equipment = "All"
     @State private var muscle = "All"
@@ -41,7 +42,7 @@ struct EFExerciseSelector: View {
                                 } label: {
                                     Text(GymEquipmentFilter.label(kind).uppercased())
                                         .font(.system(size: 10, weight: .heavy))
-                                        .foregroundStyle(equipment == kind ? .white : EF.ink)
+                                        .foregroundStyle(equipment == kind ? EF.paper : EF.ink)
                                         .padding(.horizontal, 12)
                                         .frame(minHeight: 44)
                                         .background(equipment == kind ? EF.ink : .clear)
@@ -124,6 +125,9 @@ struct EFExerciseSelector: View {
                          L10n.done :
                          L10n.text("ADD", "VOEG TOE") + " \(selectedIDs.count)",
                          symbol: "checkmark") {
+                    if !selectedIDs.isEmpty {
+                        onAdd?(selectedIDs)
+                    }
                     dismiss()
                 }
                 .padding(.horizontal, 14)

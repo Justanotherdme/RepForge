@@ -62,6 +62,19 @@ enum EF {
         default: return Color(red: 0.176, green: 0.342, blue: 0.980)
         }
     }
+    // Contrasting text over the selected accent, including bright purple/green presets.
+    static var onAccent: Color {
+        switch AppPreferences.themePreset {
+        case "purple", "forest", "emerald", "orange", "gold",
+             "cyan", "teal", "neon":
+            return Color(red: 0.043, green: 0.078, blue: 0.141)
+        case "custom":
+            let accent = UserDefaults.standard.string(forKey: "customAccent") ?? "blue"
+            return accent == "blue" ? .white : Color(red: 0.043, green: 0.078, blue: 0.141)
+        default:
+            return .white
+        }
+    }
     static var orange: Color { Color(red: 0.985, green: 0.417, blue: 0.219) }
     static var faint: Color {
         dark ? Color(red: 0.69, green: 0.74, blue: 0.82) :
@@ -157,7 +170,7 @@ struct EFAction: View {
             }
             .padding(.horizontal, 17)
             .frame(minHeight: 56)
-            .foregroundStyle(orange ? Color(red: 0.043, green: 0.078, blue: 0.141) : .white)
+            .foregroundStyle(orange ? Color(red: 0.043, green: 0.078, blue: 0.141) : EF.onAccent)
             .background(orange ? EF.orange : EF.cobalt)
         }
         .buttonStyle(EFPressStyle())

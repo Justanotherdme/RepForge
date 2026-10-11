@@ -10,11 +10,12 @@ struct EFWorkout: View {
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var history: [WorkoutSession]
 
     @State private var selection = 0
+    @State private var queueRevision = 0
     @State private var chooseExercises = false
     @State private var pickerIDs: [String] = []
     @State private var showFinish = false
     @State private var showSummary = false
-    @State private var showAdvanced = false
+    @State private var showQueueManager = false
     @State private var editNote = false
     @State private var noteDraft = ""
     @State private var restEnd: Date?
@@ -24,7 +25,10 @@ struct EFWorkout: View {
     @AppStorage("autoRestTimer") private var autoRestTimer = true
     @AppStorage("keepScreenAwake") private var keepScreenAwake = true
 
-    private var exercises: [ExerciseLog] { session.exercises.sorted { $0.order < $1.order } }
+    private var exercises: [ExerciseLog] {
+        _ = queueRevision
+        return session.exercises.sorted { $0.order < $1.order }
+    }
     private var selected: ExerciseLog? { exercises.indices.contains(selection) ? exercises[selection] : nil }
     private var complete: Int { session.exercises.reduce(0) { $0 + $1.sets.filter(\.completed).count } }
     private var total: Int { session.exercises.reduce(0) { $0 + $1.sets.count } }
@@ -63,7 +67,7 @@ struct EFWorkout: View {
                     .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 18)
-                .padding(.top, 16)
+                .padding(.top, 65)
                 .padding(.bottom, 100)
             }
             .background(EF.paper)
@@ -82,11 +86,16 @@ struct EFWorkout: View {
                     )
                 }
             }
-            .sheet(isPresented: $chooseExercises, onDismiss: appendSelected) {
-                EFExerciseSelector(selectedIDs: $pickerIDs)
+            .sheet(isPresented: $chooseExercises) {
+                EFExerciseSelector(selectedIDs: $pickerIDs) { ids in
+                    appendSelected(ids)
+                    chooseExercises = false
+                }
             }
-            .sheet(isPresented: $showAdvanced) {
-                ActiveWorkoutView(session: session)
+            .sheet(isPresented: $showQueueManager, onDismiss: {
+                queueRevision += 1
+            }) {
+                EFWorkoutQueueManager(session: session, selection: $selection)
             }
             .sheet(isPresented: $editNote) {
                 NavigationStack {
@@ -150,7 +159,7 @@ struct EFWorkout: View {
             Button { showFinish = true } label: {
                 Text(L10n.text("Finish", "Afronden"))
                     .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(EF.onAccent)
                     .padding(.horizontal, 15)
                     .frame(minHeight: 40)
                     .background(EF.cobalt, in: Capsule())
@@ -216,8 +225,8 @@ struct EFWorkout: View {
                 EFSection(title: L10n.text("Exercise queue", "Oefeningen"),
                           detail: "\(exercises.isEmpty ? 0 : selection + 1) / \(exercises.count)")
                 Spacer(minLength: 0)
-                Button { showAdvanced = true } label: {
-                    Label(L10n.text("All", "Alles"), systemImage: "list.bullet")
+                Button { showQueueManager = true } label: {
+                    Label(L10n.text("Manage queue", "Beheer lijst"), systemImage: "list.bullet.rectangle")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(EF.cobalt)
                         .frame(minHeight: 44)
@@ -236,10 +245,10 @@ struct EFWorkout: View {
                             VStack(alignment: .leading, spacing: 5) {
                                 Text("EXERCISE \(index + 1)")
                                     .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                                    .foregroundStyle(selection == index ? .white.opacity(0.77) : EF.faint)
+                                    .foregroundStyle(selection == index ? EF.onAccent.opacity(0.80) : EF.faint)
                                 Text(ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise")
                                     .font(.subheadline.weight(.bold))
-                                    .foregroundStyle(selection == index ? .white : EF.ink)
+                                    .foregroundStyle(selection == index ? EF.onAccent : EF.ink)
                                     .lineLimit(1)
                             }
                             .padding(.horizontal, 14)
@@ -290,12 +299,13 @@ struct EFWorkout: View {
         .buttonStyle(.plain)
     }
 
-    private func appendSelected() {
-        let existing = Set(session.exercises.map(\.exerciseID))
+    private func appendSelected(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
         var index = (exercises.map(\.order).max() ?? -1) + 1
         let first = index
-        for id in pickerIDs where !existing.contains(id) {
-            let count = ExerciseCatalog.find(id)?.movement == "cardio" ? 1 : AppPreferences.defaultSets
+        for id in ids {
+            guard let definition = ExerciseCatalog.find(id) else { continue }
+            let count = definition.movement == "cardio" ? 1 : AppPreferences.defaultSets
             session.exercises.append(
                 ExerciseLog(exerciseID: id, order: index,
                             sets: (0..<max(1, count)).map { WorkoutSet(order: $0) })
@@ -304,6 +314,7 @@ struct EFWorkout: View {
         }
         if index > first { selection = first }
         try? context.save()
+        queueRevision += 1
         pickerIDs = []
     }
     private func remove(_ log: ExerciseLog) {
@@ -311,6 +322,7 @@ struct EFWorkout: View {
         for (index, item) in exercises.enumerated() { item.order = index }
         selection = max(0, min(selection, session.exercises.count - 1))
         try? context.save()
+        queueRevision += 1
     }
     private func startRest(for log: ExerciseLog) {
         guard autoRestTimer else { return }
@@ -342,6 +354,104 @@ struct EFWorkout: View {
         try? context.save()
         Haptics.success()
         showSummary = true
+    }
+}
+
+
+
+/// Navigation and ordering only — set logging stays on the live workout screen.
+struct EFWorkoutQueueManager: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
+    @Bindable var session: WorkoutSession
+    @Binding var selection: Int
+
+    private var ordered: [ExerciseLog] {
+        session.exercises.sorted { $0.order < $1.order }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(Array(ordered.enumerated()), id: \.element.id) { index, log in
+                        Button {
+                            selection = index
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Text(String(format: "%02d", index + 1))
+                                    .font(.subheadline.monospacedDigit().bold())
+                                    .foregroundStyle(EF.cobalt)
+                                    .frame(width: 30, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(ExerciseCatalog.find(log.exerciseID)?.name ?? "Exercise")
+                                        .font(.subheadline.bold())
+                                        .foregroundStyle(EF.ink)
+                                    Text("\(log.sets.filter(\.completed).count) / \(log.sets.count) " +
+                                         L10n.text("sets completed", "sets voltooid"))
+                                        .font(.caption)
+                                        .foregroundStyle(EF.faint)
+                                }
+                                Spacer(minLength: 0)
+                                if selection == index {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(EF.cobalt)
+                                } else {
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.bold()).foregroundStyle(EF.faint)
+                                }
+                            }
+                            .frame(minHeight: 58)
+                            .contentShape(Rectangle())
+                        }
+                        .listRowBackground(EF.surface)
+                        .buttonStyle(.plain)
+                    }
+                    .onMove(perform: move)
+                    .onDelete(perform: delete)
+                } header: {
+                    Text(L10n.text("Workout order", "Trainingsvolgorde"))
+                } footer: {
+                    Text(L10n.text("Tap to jump to an exercise. Swipe left to remove; Edit to reorder.",
+                                   "Tik om te openen. Veeg links om te verwijderen; Wijzig om te sorteren."))
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(EF.paper)
+            .navigationTitle(L10n.text("Manage queue", "Beheer lijst"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { EditButton() }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.done) { dismiss() }
+                }
+            }
+            .tint(EF.cobalt)
+        }
+    }
+
+    private func delete(at offsets: IndexSet) {
+        let before = ordered
+        let selectedID = before.indices.contains(selection) ? before[selection].id : nil
+        let removed = offsets.compactMap { before.indices.contains($0) ? before[$0] : nil }
+        let removing = Set(removed.map(\.id))
+        session.exercises.removeAll { removing.contains($0.id) }
+        for log in removed { context.delete(log) }
+        for (index, log) in ordered.enumerated() { log.order = index }
+        let remaining = ordered
+        selection = selectedID.flatMap { id in remaining.firstIndex(where: { $0.id == id }) } ??
+                    max(0, min(selection, remaining.count - 1))
+        try? context.save()
+    }
+
+    private func move(from offsets: IndexSet, to destination: Int) {
+        var items = ordered
+        let selectedID = items.indices.contains(selection) ? items[selection].id : nil
+        items.move(fromOffsets: offsets, toOffset: destination)
+        for (index, log) in items.enumerated() { log.order = index }
+        selection = selectedID.flatMap { id in items.firstIndex(where: { $0.id == id }) } ?? 0
+        try? context.save()
     }
 }
 
