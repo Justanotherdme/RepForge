@@ -7686,15 +7686,22 @@ struct ExerciseDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                NextScreenHeader(
-                    eyebrow: exercise.muscle.uppercased() + " / " + exercise.equipment.uppercased(),
-                    title: exercise.name,
-                    detail: L10n.text(
-                        "Technique, working muscles, history and progression.",
-                        "Techniek, spierbelasting, geschiedenis en vooruitgang."
-                    )
-                )
-                .nextSurface(prominent: true)
+                VStack(alignment: .leading, spacing: 14) {
+                    EFEyebrow(value: exercise.muscle + " / " + exercise.equipment)
+                    Text(exercise.name)
+                        .font(.system(size: 32, weight: .black, design: .rounded))
+                        .tracking(-1.0)
+                        .foregroundStyle(EF.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(L10n.text("Technique, working muscles, history and progression.",
+                                   "Techniek, spierbelasting, geschiedenis en vooruitgang."))
+                        .font(.subheadline).foregroundStyle(EF.faint)
+                }
+                .padding(22)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(EF.cobalt.opacity(0.08), in: RoundedRectangle(cornerRadius: 23))
+                .overlay(RoundedRectangle(cornerRadius: 23).stroke(EF.cobalt.opacity(0.16)))
 
                 Picker(L10n.text("Section", "Onderdeel"), selection: $tab) {
                     Text("Guide").tag(0)
@@ -7703,15 +7710,20 @@ struct ExerciseDetailView: View {
                     Text("Records").tag(3)
                 }
                 .pickerStyle(.segmented)
+                .tint(EF.cobalt)
 
                 if tab == 0 { guide }
                 if tab == 1 { history }
                 if tab == 2 { charts }
                 if tab == 3 { records }
             }
-            .padding()
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 90)
         }
-        .nextCanvas()
+        .background(EF.paper)
+        .environment(\.colorScheme, .light)
+        .tint(EF.cobalt)
         .navigationTitle(exercise.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
@@ -8088,7 +8100,7 @@ struct ExerciseDemoView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(media.matchedName)
                             .font(.caption.bold())
-                            .foregroundStyle(.white)
+                            .foregroundStyle(EF.ink)
                         if let sourceURL = media.sourceURL {
                             Link("Demo source: \(media.sourceName)", destination: sourceURL)
                                 .font(.caption2)
@@ -9369,7 +9381,10 @@ struct StrongCSVDocumentPicker: UIViewControllerRepresentable {
     }
 }
 
+enum EFSettingsArea { case preferences, data }
+
 struct SettingsView: View {
+    var mode: EFSettingsArea = .preferences
     @Environment(\.modelContext) private var context
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var exportSessions: [WorkoutSession]
     @Query(sort: \WorkoutTemplate.createdAt, order: .reverse) private var exportTemplates: [WorkoutTemplate]
@@ -9487,6 +9502,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if mode == .preferences {
                 Section(L10n.text("Units & region", "Eenheden & regio")) {
                     Picker(L10n.text("Language", "Taal"), selection: $appLanguage) {
                         Text("English").tag("en")
@@ -9749,6 +9765,8 @@ struct SettingsView: View {
                     }
                 }
 
+                }
+                if mode == .data {
                 Section(L10n.text("Storage & export", "Opslag & export")) {
                     LabeledContent(L10n.text("Workout data", "Trainingsdata"), value: L10n.text("Stored locally", "Lokaal opgeslagen"))
 
@@ -9800,11 +9818,13 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
-
+                }
             }
             .scrollContentBackground(.hidden)
-            .background(RFTheme.bg)
-            .navigationTitle(L10n.settings)
+            .background(EF.paper)
+            .environment(\.colorScheme, .light)
+            .tint(EF.cobalt)
+            .navigationTitle(mode == .data ? L10n.text("Data & Backup", "Gegevens en back-ups") : L10n.settings)
             .fileExporter(
                 isPresented: $showBackupExporter,
                 document: backupDocument,

@@ -151,7 +151,7 @@ struct EFAppShell: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !keyboardVisible {
-                EFNavigation(selected: $selectedTab, start: startOrResume, dark: selectedTab == 3)
+                EFNavigation(selected: $selectedTab, start: startOrResume, dark: false)
             }
         }
         .sheet(isPresented: $showStart, onDismiss: {

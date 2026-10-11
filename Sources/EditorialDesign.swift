@@ -118,9 +118,11 @@ struct EFNumberRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Text(String(format: "%02d", order))
-                .font(.system(size: 24, weight: .black, design: .rounded))
+                .font(.system(size: 16, weight: .black, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .foregroundStyle(inverted ? EF.ice : EF.cobalt)
-                .frame(width: 37, alignment: .leading)
+                .frame(width: 30, alignment: .leading)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title.uppercased())
                     .font(.system(size: 13, weight: .heavy))
