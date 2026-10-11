@@ -163,7 +163,7 @@ struct EFPlans: View {
             }
         }
         .padding(19)
-        .background(.white, in: RoundedRectangle(cornerRadius: 19))
+        .background(EF.surface, in: RoundedRectangle(cornerRadius: 19))
     }
 
     private var workoutLibrary: some View {
@@ -235,7 +235,7 @@ struct EFPlans: View {
             Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(EF.ink)
         }
         .padding(14)
-        .background(.white, in: RoundedRectangle(cornerRadius: 18))
+        .background(EF.surface, in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(EF.rule.opacity(0.65)))
     }
 

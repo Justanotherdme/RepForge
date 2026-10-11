@@ -21,15 +21,15 @@ struct EFWorkoutExercise: View {
             exerciseActions
             exerciseTitle
             exerciseMetadata
-            EFRule(dark: true)
+            EFRule()
             setHeaders
             setRows
             addSetButton
             previousSetSummary
         }
-        .padding(14)
-        .background(EF.nightPanel)
-        .overlay(Rectangle().stroke(EF.ice.opacity(0.2)))
+        .padding(17)
+        .background(EF.surface, in: RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(EF.rule))
         .onAppear {
             previous = Metrics.previousSets(
                 exerciseID: log.exerciseID, sessions: history, gymID: gymID
@@ -48,7 +48,7 @@ struct EFWorkoutExercise: View {
     }
     private var exerciseActions: some View {
         HStack {
-            EFEyebrow(value: "CURRENT EXERCISE", light: true)
+            EFEyebrow(value: "CURRENT EXERCISE")
             Spacer()
             if let exercise {
                 NavigationLink {
@@ -56,7 +56,7 @@ struct EFWorkoutExercise: View {
                 } label: {
                     Label("VIDEO", systemImage: "play.rectangle")
                         .font(.system(size: 10, weight: .heavy))
-                        .foregroundStyle(EF.ice)
+                        .foregroundStyle(EF.faint)
                         .frame(minHeight: 44)
                 }
             }
@@ -70,7 +70,7 @@ struct EFWorkoutExercise: View {
                 }
             } label: {
                 Image(systemName: "ellipsis")
-                    .foregroundStyle(EF.ice)
+                    .foregroundStyle(EF.faint)
                     .frame(width: 44, height: 44)
             }
             .accessibilityLabel(L10n.text("Exercise actions", "Oefeningacties"))
@@ -78,24 +78,24 @@ struct EFWorkoutExercise: View {
     }
 
     private var exerciseTitle: some View {
-        Text((exercise?.name ?? "Exercise").uppercased())
-            .font(.system(size: 25, weight: .black, design: .rounded))
-            .tracking(-1.1)
-            .foregroundStyle(EF.white)
+        Text(exercise?.name ?? "Exercise")
+            .font(.system(size: 24, weight: .black, design: .rounded))
+            .tracking(-0.8)
+            .foregroundStyle(EF.ink)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 4)
     }
 
     private var exerciseMetadata: some View {
-        HStack(spacing: 9) {
-            Text((exercise?.muscle ?? "").uppercased())
-            Text("•")
-            Text((exercise?.equipment ?? "").uppercased())
-            Text("•")
-            Text("REST \(log.restSeconds ?? AppPreferences.defaultRestSeconds) SEC")
+        VStack(alignment: .leading, spacing: 7) {
+            Text("\(exercise?.muscle ?? "") • \(exercise?.equipment ?? "")")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(EF.faint)
+            Label("\(log.restSeconds ?? AppPreferences.defaultRestSeconds)s rest between sets",
+                  systemImage: "timer")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(EF.cobalt)
         }
-        .font(.system(size: 9, weight: .medium, design: .monospaced))
-        .foregroundStyle(EF.ice)
         .padding(.top, 8)
         .padding(.bottom, 17)
     }
@@ -138,7 +138,7 @@ struct EFWorkoutExercise: View {
                     delete: { delete(set) }
                 )
             }
-            EFRule(dark: true)
+            EFRule()
         }
     }
 
@@ -148,12 +148,12 @@ struct EFWorkoutExercise: View {
             try? context.save()
             Haptics.light()
         } label: {
-            Text(L10n.text("+ ADD SET", "+ SET TOEVOEGEN"))
-                .font(.system(size: 11, weight: .heavy))
-                .tracking(1)
-                .foregroundStyle(EF.ice)
+            Label(L10n.text("Add set", "Set toevoegen"), systemImage: "plus")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(EF.cobalt)
                 .frame(maxWidth: .infinity, minHeight: 50)
-                .overlay(Rectangle().stroke(EF.ice.opacity(0.34)))
+                .background(EF.cobalt.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(EF.cobalt.opacity(0.25)))
         }
         .buttonStyle(.plain)
         .padding(.top, 15)
@@ -172,11 +172,11 @@ struct EFWorkoutExercise: View {
             Button {
                 copyPreviousSet(last)
             } label: {
-                Text("COPY LAST ↗").foregroundStyle(EF.ice)
+                Text("COPY LAST ↗").foregroundStyle(EF.faint)
             }
         }
         .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .foregroundStyle(EF.ice.opacity(0.8))
+        .foregroundStyle(EF.faint)
         .frame(minHeight: 46)
     }
 
@@ -197,7 +197,7 @@ struct EFWorkoutExercise: View {
     private func heading(_ value: String) -> some View {
         Text(value)
             .font(.system(size: 10, weight: .heavy, design: .monospaced))
-            .foregroundStyle(EF.ice.opacity(0.75))
+            .foregroundStyle(EF.faint)
     }
     private func delete(_ set: WorkoutSet) {
         guard log.sets.count > 1 else { return }
@@ -221,7 +221,7 @@ struct EFStrengthLine: View {
         VStack(spacing: 8) {
             row
             if dynamicType.isAccessibilitySize {
-                Text("KG × REPS").font(.caption).foregroundStyle(EF.ice)
+                Text("KG × REPS").font(.caption).foregroundStyle(EF.faint)
             }
         }
         .padding(.vertical, 8)
@@ -245,7 +245,7 @@ struct EFStrengthLine: View {
                     }
                 }
                 .font(.system(size: 12, weight: .heavy, design: .monospaced))
-                .foregroundStyle(EF.ice)
+                .foregroundStyle(EF.cobalt)
                 .frame(width: 24, height: 48)
             }
             weightInput
@@ -264,8 +264,8 @@ struct EFStrengthLine: View {
                     .font(.headline.weight(.heavy))
                     .foregroundStyle(set.completed ? EF.night : EF.ice)
                     .frame(width: 44, height: 48)
-                    .background(set.completed ? EF.mint : EF.night)
-                    .overlay(Circle().stroke(set.completed ? .clear : EF.ice.opacity(0.45)))
+                    .background(set.completed ? EF.mint : EF.field, in: RoundedRectangle(cornerRadius: 11))
+                    .overlay(Circle().stroke(set.completed ? .clear : EF.rule))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(set.completed ? "Undo completed set" : "Complete set \(set.order + 1)")
@@ -281,7 +281,7 @@ struct EFStrengthLine: View {
         )
         .frame(maxWidth: .infinity)
         .frame(height: 48)
-        .background(EF.nightField)
+        .background(EF.field, in: RoundedRectangle(cornerRadius: 10))
         .accessibilityLabel("Weight set \(set.order + 1)")
     }
     private var repsInput: some View {
@@ -294,7 +294,7 @@ struct EFStrengthLine: View {
         )
         .frame(maxWidth: .infinity)
         .frame(height: 48)
-        .background(EF.nightField)
+        .background(EF.field, in: RoundedRectangle(cornerRadius: 10))
         .accessibilityLabel("Reps set \(set.order + 1)")
     }
 }
@@ -320,14 +320,14 @@ struct EFCardioLine: View {
                     }
                 } label: {
                     Text("\(set.order + 1)")
-                        .font(.caption.bold()).foregroundStyle(EF.ice)
+                        .font(.caption.bold()).foregroundStyle(EF.faint)
                         .frame(width: 24, height: 48)
                 }
                 DoneNumberField(value: Binding(
                     get: { (set.durationSeconds ?? 0) / 60 },
                     set: { set.durationSeconds = $0 > 0 ? $0 * 60 : nil }
                 ), integerOnly: false, placeholder: "0")
-                .frame(height: 48).background(EF.nightField)
+                .frame(height: 48).background(EF.field)
                 DoneNumberField(value: Binding(
                     get: { AppPreferences.displayDistance(set.distanceKm ?? 0) },
                     set: {
@@ -335,7 +335,7 @@ struct EFCardioLine: View {
                         set.distanceKm = km > 0 ? km : nil
                     }
                 ), integerOnly: false, placeholder: "0")
-                .frame(height: 48).background(EF.nightField)
+                .frame(height: 48).background(EF.field)
                 Button {
                     UIApplication.shared.sendAction(
                         #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
@@ -348,7 +348,7 @@ struct EFCardioLine: View {
                     Image(systemName: set.completed ? "checkmark" : "circle")
                         .foregroundStyle(set.completed ? EF.night : EF.ice)
                         .frame(width: 44, height: 48)
-                        .background(set.completed ? EF.mint : EF.night)
+                        .background(set.completed ? EF.mint : EF.field, in: RoundedRectangle(cornerRadius: 11))
                 }
             }
             .padding(.vertical, 7)

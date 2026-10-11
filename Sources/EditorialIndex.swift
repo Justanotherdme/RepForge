@@ -146,7 +146,7 @@ struct EFIndex: View {
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, minHeight: 75, alignment: .leading)
         .padding(.vertical, 5)
-        .background(.white, in: RoundedRectangle(cornerRadius: 16))
+        .background(EF.surface, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(EF.rule.opacity(0.65)))
     }
 }

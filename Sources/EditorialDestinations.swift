@@ -43,7 +43,7 @@ struct EFLinkTile: View {
         }
         .padding(15)
         .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
-        .background(.white, in: RoundedRectangle(cornerRadius: 17))
+        .background(EF.surface, in: RoundedRectangle(cornerRadius: 17))
         .overlay(RoundedRectangle(cornerRadius: 17).stroke(EF.rule.opacity(0.65)))
         .contentShape(RoundedRectangle(cornerRadius: 17))
     }
@@ -62,7 +62,7 @@ struct EFInfoTile: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(.white, in: RoundedRectangle(cornerRadius: 15))
+        .background(EF.surface, in: RoundedRectangle(cornerRadius: 15))
         .overlay(RoundedRectangle(cornerRadius: 15).stroke(EF.rule.opacity(0.55)))
     }
 }
@@ -177,7 +177,7 @@ struct EFGymPage: View {
                     }
                 }
                 .padding(15)
-                .background(.white, in: RoundedRectangle(cornerRadius: 18))
+                .background(EF.surface, in: RoundedRectangle(cornerRadius: 18))
                 EFEyebrow(value: "YOUR GYMS").padding(.top, 15)
                 ForEach(GymProfileStore.load()) { gym in
                     Button {
@@ -200,7 +200,7 @@ struct EFGymPage: View {
                 Toggle("Separate personal records by gym", isOn: $separateRecords)
                     .tint(EF.cobalt)
                     .padding(17)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 17))
+                    .background(EF.surface, in: RoundedRectangle(cornerRadius: 17))
             }
             .padding(20)
             .padding(.bottom, 55)
@@ -250,7 +250,7 @@ struct EFMeasurementsPage: View {
                     }
                     .font(.subheadline)
                     .padding(15)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 13))
+                    .background(EF.surface, in: RoundedRectangle(cornerRadius: 13))
                 }
             }
             .padding(20)
@@ -306,7 +306,7 @@ struct EFAthleteDetailsPage: View {
                     .tint(EF.cobalt)
                 }
                 .padding(16)
-                .background(.white, in: RoundedRectangle(cornerRadius: 18))
+                .background(EF.surface, in: RoundedRectangle(cornerRadius: 18))
                 EFEyebrow(value: "PERSONAL INFORMATION")
                 EFInfoLine(label: "Name", value: profile?.displayName ?? "Athlete")
                 EFInfoLine(label: "Body weight", value: profile.map {
@@ -353,6 +353,6 @@ struct EFInfoLine: View {
                 .lineLimit(2).minimumScaleFactor(0.8)
         }
         .padding(17)
-        .background(.white, in: RoundedRectangle(cornerRadius: 14))
+        .background(EF.surface, in: RoundedRectangle(cornerRadius: 14))
     }
 }

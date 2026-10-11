@@ -131,7 +131,7 @@ struct EFExerciseSelector: View {
                 .background(EF.paper)
             }
         }
-        .environment(\.colorScheme, .light)
+        
         .tint(EF.cobalt)
     }
 }
