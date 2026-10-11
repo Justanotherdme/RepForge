@@ -1,4 +1,4 @@
-# RepForge test
+# RepForge
 
 **RepForge is a free, local-first strength-training app for iPhone.**  
 Track workouts, build routines, follow progress, import existing Strong history, run rest timers from the Dynamic Island, and keep control of your own training data.
