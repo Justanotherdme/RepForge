@@ -154,7 +154,9 @@ struct EFHome: View {
                     Image(systemName: "arrow.up.right")
                         .font(.headline.weight(.heavy))
                 }
-                .foregroundStyle(EF.ink)
+                // The CTA stays on an intentionally light surface even in dark themes.
+                // Semantic EF.ink becomes white in dark mode and disappears here.
+                .foregroundStyle(Color(red: 0.043, green: 0.078, blue: 0.141))
                 .padding(.horizontal, 16)
                 .frame(minHeight: 57)
                 .background(EF.white)

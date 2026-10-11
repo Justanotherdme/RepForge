@@ -8,6 +8,7 @@ struct EFSessionLauncher: View {
     @Query(sort: \WorkoutTemplate.createdAt, order: .reverse) private var templates: [WorkoutTemplate]
     @State private var source = 0
     @State private var query = ""
+    @State private var templateQuery = ""
     let launch: (WorkoutSession) -> Void
     @AppStorage("activeGymID") private var gymID = GymProfileStore.defaultID
 
@@ -34,10 +35,13 @@ struct EFSessionLauncher: View {
                         .buttonStyle(.plain)
                     }
                     EFEyebrow(value: "START SOMETHING NEW").padding(.top, 9)
-                    Button { source = 0 } label: {
+                    NavigationLink {
+                        templatePicker
+                    } label: {
                         EFLinkTile(symbol: "rectangle.stack",
                                    title: L10n.text("Choose a template", "Kies een template"),
-                                   subtitle: "Start from one of your saved routines")
+                                   subtitle: L10n.text("Browse and start a saved routine",
+                                                       "Bekijk en start een opgeslagen schema"))
                     }
                     .buttonStyle(.plain)
                     Button { showTemplateEditor = true } label: {
@@ -126,6 +130,91 @@ struct EFSessionLauncher: View {
             }
             .sheet(isPresented: $showTemplateEditor) { TemplateEditorView() }
         }
+    }
+
+    private var templatePicker: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 15) {
+                EFPageHeading(
+                    title: L10n.text("Choose a template", "Kies een template"),
+                    subtitle: L10n.text("Select a saved routine to start your workout.",
+                                        "Kies een opgeslagen schema om te beginnen.")
+                )
+                HStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(EF.faint)
+                    TextField(L10n.text("Search templates", "Zoek templates"), text: $templateQuery)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .foregroundStyle(EF.ink)
+                }
+                .padding(15)
+                .background(EF.field, in: RoundedRectangle(cornerRadius: 14))
+
+                Text("\(templates.count) " +
+                     L10n.text("SAVED TEMPLATES", "OPGESLAGEN TEMPLATES"))
+                    .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(EF.faint)
+                    .padding(.top, 6)
+
+                if templates.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Image(systemName: "rectangle.stack.badge.plus")
+                            .font(.largeTitle).foregroundStyle(EF.cobalt)
+                        Text(L10n.text("No templates yet", "Nog geen templates"))
+                            .font(.title3.bold()).foregroundStyle(EF.ink)
+                        Text(L10n.text("Create a routine once, then reuse it whenever you train.",
+                                       "Maak een schema en gebruik het bij iedere training."))
+                            .font(.subheadline).foregroundStyle(EF.faint)
+                        Button { showTemplateEditor = true } label: {
+                            Label(L10n.text("Create template", "Template maken"),
+                                  systemImage: "plus")
+                                .font(.subheadline.weight(.bold))
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                        }
+                        .buttonStyle(.borderedProminent).tint(EF.cobalt)
+                    }
+                    .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(EF.surface, in: RoundedRectangle(cornerRadius: 18))
+                } else {
+                    let matching = templates.filter {
+                        templateQuery.isEmpty ||
+                        $0.name.localizedCaseInsensitiveContains(templateQuery)
+                    }
+                    if matching.isEmpty {
+                        Text(L10n.text("No templates match your search.",
+                                       "Geen templates gevonden voor deze zoekopdracht."))
+                            .font(.subheadline).foregroundStyle(EF.faint)
+                            .padding(.vertical, 15)
+                    }
+                    ForEach(matching) { template in
+                        Button { startTemplate(template) } label: {
+                            EFLinkTile(
+                                symbol: "list.bullet.rectangle",
+                                title: template.name,
+                                subtitle: "\(template.exerciseIDs.count) " +
+                                          L10n.text("exercises • Start workout",
+                                                     "oefeningen • Start training")
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Button { showTemplateEditor = true } label: {
+                        EFLinkTile(symbol: "plus.square",
+                                   title: L10n.text("Create another template", "Nog een template maken"),
+                                   subtitle: L10n.text("Build and save your own routine",
+                                                       "Maak en bewaar je eigen schema"))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+            .padding(.bottom, 80)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(EF.paper)
+        .navigationTitle(L10n.text("Templates", "Templates"))
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func startEmpty() {
