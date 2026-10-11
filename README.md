@@ -145,37 +145,37 @@ RepForge currently includes:
 - Multiple text-size options
 - Haptics and workout-behavior preferences
 
-## Training experience
+## Approved editorial UI (0.4.0)
 
-### Home and motivation
+This version is an implementation of the approved six-screen concept, rather than
+a recoloring of the prior card-based interface.
 
-The main navigation is **Train / Plans / Exercises / History / Profile**. Settings live in the Profile toolbar.
+- **Home:** paper background, large editorial headlines, cobalt mission feature,
+  recent routines and training-day grid.
+- **Playbook:** curated sessions with estimated durations and a separate, editable
+  original three-week program. Saved routines and scheduling remain accessible.
+- **Index:** searchable machine and exercise library with exact video support and
+  personal exercise management.
+- **Live workout:** independent navy session cockpit, horizontal exercise queue,
+  flat strength/cardio input rows, explicit menus, previous-set copy, nonblocking
+  rest strip, auto-expiring timer, Live Activity and a branded finish action.
+- **Atlas:** **the original anatomical heatmap** (not the prototype placeholder),
+  featuring front and back BodyMuscleFigure, existing yellow/orange/red gradient,
+  per-muscle effective-set breakdown and recovery estimate. All numbers derive from
+  logged workouts. Recovery is **not** a medical measurement.
+- **Athlete File:** milestone story, settings/accessibility, backups,
+  measurements and advanced analytics.
 
-- Real workout-history-based XP and level progression. Points are earned from completed sessions and set entries, not manual check-ins.
-- Milestone cards and weekly consistency streaks derived from stored training history; no new account or persistent progression schema.
-- An interactive, 13-week session-activity heatmap and today's anatomical muscle activation preview.
-- During a workout, the live anatomical heatmap illuminates muscles as sets are logged.
-- Workout summaries display earned XP, newly earned milestones and a workout-specific muscle map.
+The original blue metallic RepForge app icon has been restored. All previous
+SwiftData models, saved IDs, imported files, native-video caching, gym profiles
+and specialty advanced tools remain unchanged. Where needed, an advanced route
+opens the original specialized functionality, so existing capability is not
+silently removed.
 
-### Workout and training-plan library
-
-**Plans** is a separate area containing 28 goal-oriented training examples, six multi-session splits and the original, editable three-week program.
-
-- Filter ready-made workouts by goal or experience level.
-- Review exercise order, prescribed sets, rep ranges, optional cues and estimated training time.
-- Start immediately, save a session as a custom template or schedule it for later.
-- The original three-week program retains its saved edits, sharing, scheduling and manual-reset functionality.
-- Estimated time includes warm-up, work, suggested rest and station transitions. Equipment availability and actual duration will vary.
-
-The workouts are original general-purpose examples and are **not represented as certified professional prescriptions**, medical guidance or customized coaching. For general training guidance see the [2026 ACSM resistance-training position stand](https://acsm.org/science-spotlight-acsm-releases-new-position-stand-on-resistance-training/) and [NSCA training-frequency guidance](https://www.nsca.com/education/articles/kinetic-select/determination-of-resistance-training-frequency/).
-
-### Muscle intelligence
-
-- Front/back anatomical heatmap of effective muscle sets for this week, last week or the previous 28 days.
-- Toggle to an estimated-recovery view computed from prior sessions.
-- Tap muscle breakdown rows for additional context.
-- The exercise detail page shows primary and assisting muscles anatomically.
-- Recovery is a heuristic inferred from logged sets and elapsed time—not a physiological or medical measurement.
+This branch must pass the macOS iOS build and simulator launch/screenshot
+acceptance checks before merging. GitHub Actions currently reports failures
+before any runner steps are created, so **source changes are not yet an
+installable, verified release**.
 
 ## Data and privacy
 
