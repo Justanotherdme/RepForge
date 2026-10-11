@@ -2,6 +2,11 @@ name: iOS build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'build/repforge-ipa-20261011'
+    paths:
+      - '.github/workflows/ios.yml'
 
 jobs:
   build:
