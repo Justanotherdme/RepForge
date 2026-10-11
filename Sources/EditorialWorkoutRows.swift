@@ -18,128 +18,14 @@ struct EFWorkoutExercise: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                EFEyebrow(value: "CURRENT EXERCISE", light: true)
-                Spacer()
-                if let exercise {
-                    NavigationLink {
-                        ExerciseDetailView(exercise: exercise)
-                    } label: {
-                        Label("VIDEO", systemImage: "play.rectangle")
-                            .font(.system(size: 10, weight: .heavy))
-                            .foregroundStyle(EF.ice)
-                            .frame(minHeight: 44)
-                    }
-                }
-                Menu {
-                    Button(L10n.text("Exercise options", "Oefeningopties"), systemImage: "slider.horizontal.3") {
-                        showOptions = true
-                    }
-                    Button(L10n.text("Remove exercise", "Oefening verwijderen"),
-                           systemImage: "trash", role: .destructive) {
-                        confirmDelete = true
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .foregroundStyle(EF.ice)
-                        .frame(width: 44, height: 44)
-                }
-                .accessibilityLabel(L10n.text("Exercise actions", "Oefeningacties"))
-            }
-
-            Text((exercise?.name ?? "Exercise").uppercased())
-                .font(.system(size: 25, weight: .black, design: .rounded))
-                .tracking(-1.1)
-                .foregroundStyle(EF.white)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 4)
-
-            HStack(spacing: 9) {
-                Text((exercise?.muscle ?? "").uppercased())
-                Text("•")
-                Text((exercise?.equipment ?? "").uppercased())
-                Text("•")
-                Text("REST \(log.restSeconds ?? AppPreferences.defaultRestSeconds) SEC")
-            }
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
-            .foregroundStyle(EF.ice)
-            .padding(.top, 8)
-            .padding(.bottom, 17)
-
+            exerciseActions
+            exerciseTitle
+            exerciseMetadata
             EFRule(dark: true)
-            if isCardio {
-                HStack {
-                    heading("INTERVAL")
-                    Spacer()
-                    heading("MIN")
-                    Spacer()
-                    heading("DIST")
-                    Spacer()
-                    heading("LOG")
-                }
-                .padding(.vertical, 10)
-            } else {
-                HStack(spacing: 7) {
-                    heading("SET").frame(width: 24, alignment: .leading)
-                    heading(AppPreferences.weightLabel.uppercased()).frame(maxWidth: .infinity)
-                    heading("REPS").frame(maxWidth: .infinity)
-                    heading("LOG").frame(width: 44)
-                }
-                .padding(.vertical, 9)
-            }
-
-            ForEach(sets) { set in
-                if isCardio {
-                    EFCardioLine(set: set, canDelete: sets.count > 1,
-                                 completed: { if $0 { setCompleted() } },
-                                 delete: { delete(set) })
-                } else {
-                    EFStrengthLine(
-                        set: set,
-                        previous: previous.indices.contains(set.order) ? previous[set.order] : nil,
-                        canDelete: sets.count > 1,
-                        completed: { if $0 { setCompleted() } },
-                        delete: { delete(set) }
-                    )
-                }
-                EFRule(dark: true)
-            }
-            Button {
-                log.sets.append(WorkoutSet(order: sets.count))
-                try? context.save()
-                Haptics.light()
-            } label: {
-                Text(L10n.text("+ ADD SET", "+ SET TOEVOEGEN"))
-                    .font(.system(size: 11, weight: .heavy))
-                    .tracking(1)
-                    .foregroundStyle(EF.ice)
-                    .frame(maxWidth: .infinity, minHeight: 50)
-                    .overlay(Rectangle().stroke(EF.ice.opacity(0.34)))
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 15)
-            if let last = previous.last {
-                HStack {
-                    Text(L10n.text("PREVIOUS", "VORIG") + "  " +
-                         AppPreferences.displayWeight(last.0).formatted(
-                            .number.precision(.fractionLength(0...2))
-                         ) + " " + AppPreferences.weightLabel + " × \(last.1)")
-                    Spacer()
-                    Button {
-                        if let next = sets.first(where: { !$0.completed }) {
-                            next.weightKg = last.0
-                            next.reps = last.1
-                            try? context.save()
-                            Haptics.light()
-                        }
-                    } label: {
-                        Text("COPY LAST ↗").foregroundStyle(EF.ice)
-                    }
-                }
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundStyle(EF.ice.opacity(0.8))
-                .frame(minHeight: 46)
-            }
+            setHeaders
+            setRows
+            addSetButton
+            previousSetSummary
         }
         .padding(14)
         .background(EF.nightPanel)
@@ -160,6 +46,144 @@ struct EFWorkoutExercise: View {
             Button(L10n.text("Cancel", "Annuleren"), role: .cancel) {}
         }
     }
+    private var exerciseActions: some View {
+        HStack {
+            EFEyebrow(value: "CURRENT EXERCISE", light: true)
+            Spacer()
+            if let exercise {
+                NavigationLink {
+                    ExerciseDetailView(exercise: exercise)
+                } label: {
+                    Label("VIDEO", systemImage: "play.rectangle")
+                        .font(.system(size: 10, weight: .heavy))
+                        .foregroundStyle(EF.ice)
+                        .frame(minHeight: 44)
+                }
+            }
+            Menu {
+                Button(L10n.text("Exercise options", "Oefeningopties"), systemImage: "slider.horizontal.3") {
+                    showOptions = true
+                }
+                Button(L10n.text("Remove exercise", "Oefening verwijderen"),
+                       systemImage: "trash", role: .destructive) {
+                    confirmDelete = true
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .foregroundStyle(EF.ice)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel(L10n.text("Exercise actions", "Oefeningacties"))
+        }
+    }
+
+    private var exerciseTitle: some View {
+        Text((exercise?.name ?? "Exercise").uppercased())
+            .font(.system(size: 25, weight: .black, design: .rounded))
+            .tracking(-1.1)
+            .foregroundStyle(EF.white)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 4)
+    }
+
+    private var exerciseMetadata: some View {
+        HStack(spacing: 9) {
+            Text((exercise?.muscle ?? "").uppercased())
+            Text("•")
+            Text((exercise?.equipment ?? "").uppercased())
+            Text("•")
+            Text("REST \(log.restSeconds ?? AppPreferences.defaultRestSeconds) SEC")
+        }
+        .font(.system(size: 9, weight: .medium, design: .monospaced))
+        .foregroundStyle(EF.ice)
+        .padding(.top, 8)
+        .padding(.bottom, 17)
+    }
+
+    @ViewBuilder private var setHeaders: some View {
+        if isCardio {
+            HStack {
+                heading("INTERVAL")
+                Spacer()
+                heading("MIN")
+                Spacer()
+                heading("DIST")
+                Spacer()
+                heading("LOG")
+            }
+            .padding(.vertical, 10)
+        } else {
+            HStack(spacing: 7) {
+                heading("SET").frame(width: 24, alignment: .leading)
+                heading(AppPreferences.weightLabel.uppercased()).frame(maxWidth: .infinity)
+                heading("REPS").frame(maxWidth: .infinity)
+                heading("LOG").frame(width: 44)
+            }
+            .padding(.vertical, 9)
+        }
+    }
+
+    private var setRows: some View {
+        ForEach(sets) { set in
+            if isCardio {
+                EFCardioLine(set: set, canDelete: sets.count > 1,
+                             completed: { if $0 { setCompleted() } },
+                             delete: { delete(set) })
+            } else {
+                EFStrengthLine(
+                    set: set,
+                    previous: previous.indices.contains(set.order) ? previous[set.order] : nil,
+                    canDelete: sets.count > 1,
+                    completed: { if $0 { setCompleted() } },
+                    delete: { delete(set) }
+                )
+            }
+            EFRule(dark: true)
+        }
+    }
+
+    private var addSetButton: some View {
+        Button {
+            log.sets.append(WorkoutSet(order: sets.count))
+            try? context.save()
+            Haptics.light()
+        } label: {
+            Text(L10n.text("+ ADD SET", "+ SET TOEVOEGEN"))
+                .font(.system(size: 11, weight: .heavy))
+                .tracking(1)
+                .foregroundStyle(EF.ice)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .overlay(Rectangle().stroke(EF.ice.opacity(0.34)))
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 15)
+    }
+
+    @ViewBuilder private var previousSetSummary: some View {
+        if let last = previous.last {
+            HStack {
+                Text(L10n.text("PREVIOUS", "VORIG") + "  " +
+                     AppPreferences.displayWeight(last.0).formatted(
+                        .number.precision(.fractionLength(0...2))
+                     ) + " " + AppPreferences.weightLabel + " × \(last.1)")
+                Spacer()
+                Button {
+                    if let next = sets.first(where: { !$0.completed }) {
+                        next.weightKg = last.0
+                        next.reps = last.1
+                        try? context.save()
+                        Haptics.light()
+                    }
+                } label: {
+                    Text("COPY LAST ↗").foregroundStyle(EF.ice)
+                }
+            }
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .foregroundStyle(EF.ice.opacity(0.8))
+            .frame(minHeight: 46)
+        }
+    }
+
     private func heading(_ value: String) -> some View {
         Text(value)
             .font(.system(size: 10, weight: .heavy, design: .monospaced))
