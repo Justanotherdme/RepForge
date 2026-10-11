@@ -5,76 +5,79 @@ struct EFProfile: View {
     @Environment(\.dismiss) private var dismiss
     @Query private var profiles: [UserProfile]
     @Query(sort: \WorkoutSession.startedAt, order: .reverse) private var sessions: [WorkoutSession]
-    @State private var showSettings = false
-    @State private var showAdvanced = false
-    @State private var showGym = false
-    @State private var showMeasurements = false
-    @AppStorage("activeGymID") private var gymID = GymProfileStore.defaultID
     private var progress: ForgeProgress { ForgeProgress(sessions: sessions) }
     private var unlocked: Int { progress.milestones.filter(\.unlocked).count }
+    private var completed: Int { sessions.filter { $0.endedAt != nil }.count }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(spacing: 0) {
-                    VStack(alignment: .leading, spacing: 23) {
-                        EFEyebrow(value: "04 / ATHLETE FILE", light: true)
-                        EFTitle(lines: L10n.text("YOUR|STORY.", "JOUW|VERHAAL.").components(separatedBy: "|"), highlight: -1, inverted: true)
-                        Text(L10n.text("Built, not bought.", "Verdiend, niet gekocht."))
-                            .font(.subheadline).foregroundStyle(EF.ice)
-                        HStack(spacing: 23) {
-                            stat("\(progress.level)", "LEVEL")
-                            stat("\(progress.points)", "XP EARNED")
-                            stat("\(progress.weeklyStreak)", "WEEK STREAK")
-                        }
+                LazyVStack(alignment: .leading, spacing: 15) {
+                    EFPageHeading(title: L10n.text("Profile", "Profiel"),
+                                  subtitle: L10n.text("Your training, your story.",
+                                                      "Jouw training, jouw verhaal."))
+                    profileCard
+                    EFEyebrow(value: "PROFILE & PROGRESS").padding(.top, 17)
+                    NavigationLink {
+                        EFGymPage()
+                    } label: {
+                        EFLinkTile(symbol: "dumbbell.fill", title: L10n.text("Gym", "Gym"),
+                                   subtitle: "Training locations and record settings")
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(24)
-                    .padding(.top, 17)
-                    .background(EF.night)
-
-                    VStack(alignment: .leading, spacing: 20) {
-                        EFSection(title: L10n.text("MILESTONES", "MIJLPALEN"),
-                                  detail: "\(unlocked) / \(progress.milestones.count) UNLOCKED")
-                        ForEach(Array(progress.milestones.enumerated()), id: \.element.id) { index, badge in
-                            HStack(spacing: 13) {
-                                Image(systemName: badge.symbol)
-                                    .font(.title2.weight(.semibold))
-                                    .foregroundStyle(badge.unlocked ? .white : EF.ice)
-                                    .frame(width: 52, height: 52)
-                                    .background(badge.unlocked ? EF.cobalt : EF.ink)
-                                VStack(alignment: .leading, spacing: 7) {
-                                    Text(badge.title.uppercased())
-                                        .font(.system(size: 13, weight: .heavy))
-                                        .foregroundStyle(EF.ink)
-                                    if badge.unlocked {
-                                        Text(L10n.text("Unlocked", "Behaald"))
-                                            .font(.caption).foregroundStyle(EF.faint)
-                                    } else {
-                                        ProgressView(value: badge.progress).tint(EF.cobalt)
-                                    }
+                    NavigationLink {
+                        EFMeasurementsPage()
+                    } label: {
+                        EFLinkTile(symbol: "chart.xyaxis.line",
+                                   title: L10n.text("Measurements", "Metingen"),
+                                   subtitle: "Weight, body composition and trends")
+                    }
+                    NavigationLink {
+                        EFAthleteDetailsPage()
+                    } label: {
+                        EFLinkTile(symbol: "person.crop.rectangle",
+                                   title: L10n.text("Athlete Details", "Atleetgegevens"),
+                                   subtitle: "Profile, performance and personal records")
+                    }
+                    EFEyebrow(value: "SETTINGS & DATA").padding(.top, 17)
+                    NavigationLink {
+                        EFSettingsHub()
+                    } label: {
+                        EFLinkTile(symbol: "gearshape",
+                                   title: L10n.settings,
+                                   subtitle: "Preferences, appearance and accessibility")
+                    }
+                    NavigationLink {
+                        SettingsView(mode: .data)
+                    } label: {
+                        EFLinkTile(symbol: "externaldrive",
+                                   title: L10n.text("Data & Backup", "Gegevens en back-ups"),
+                                   subtitle: "Import, export and restore safely")
+                    }
+                    EFEyebrow(value: "MILESTONES").padding(.top, 17)
+                    Text("\(unlocked) / \(progress.milestones.count) UNLOCKED")
+                        .font(.caption.weight(.semibold)).foregroundStyle(EF.faint)
+                    ForEach(progress.milestones) { badge in
+                        HStack(spacing: 12) {
+                            Image(systemName: badge.symbol)
+                                .foregroundStyle(badge.unlocked ? EF.cobalt : EF.faint)
+                                .frame(width: 38, height: 38)
+                                .background(EF.cobalt.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(badge.title).font(.subheadline.bold()).foregroundStyle(EF.ink)
+                                if !badge.unlocked {
+                                    ProgressView(value: badge.progress).tint(EF.cobalt)
+                                } else {
+                                    Text("Unlocked").font(.caption2).foregroundStyle(EF.faint)
                                 }
-                                Spacer(minLength: 4)
-                                Text(badge.unlocked ? "✓" : "\(badge.current) / \(badge.target)")
-                                    .foregroundStyle(EF.cobalt)
-                                    .font(.caption.bold())
                             }
-                            .padding(.vertical, 7)
-                            EFRule()
+                            Spacer()
                         }
-                        EFSection(title: L10n.text("CONTROL CENTER", "INSTELLINGEN"))
-                            .padding(.top, 10)
-                        controlRow(1, title: L10n.text("Settings & accessibility", "Instellingen en toegankelijkheid"),
-                                   description: "DISPLAY • TEXT • REDUCED MOTION") { showSettings = true }
-                        controlRow(2, title: L10n.text("Your data & backups", "Gegevens en back-ups"),
-                                   description: "EXPORT • IMPORT • PRIVACY") { showSettings = true }
-                        controlRow(3, title: L10n.text("Gyms & measurements", "Gyms en metingen"),
-                                   description: "BODY RECORDS • TRAINING LOCATIONS") { showAdvanced = true }
-                        controlRow(4, title: L10n.text("Detailed athlete profile", "Uitgebreid profiel"),
-                                   description: "PERSONAL BESTS • PROGRESSION") { showAdvanced = true }
+                        .padding(13)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 16))
                     }
-                    .padding(24)
                 }
+                .padding(20)
+                .padding(.bottom, 80)
             }
             .background(EF.paper)
             .navigationBarTitleDisplayMode(.inline)
@@ -83,24 +86,42 @@ struct EFProfile: View {
                     Button(L10n.done) { dismiss() }.foregroundStyle(EF.cobalt)
                 }
             }
-            .sheet(isPresented: $showSettings) { SettingsView() }
-            .sheet(isPresented: $showAdvanced) { ProfileView() }
+            .tint(EF.cobalt)
         }
+        .environment(\.colorScheme, .light)
     }
-    private func stat(_ number: String, _ label: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(number).font(.system(size: 23, weight: .heavy)).foregroundStyle(.white)
-            Text(label).font(.system(size: 10, weight: .bold, design: .monospaced))
+
+    private var profileCard: some View {
+        VStack(alignment: .leading, spacing: 17) {
+            HStack(spacing: 13) {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: 55))
+                    .foregroundStyle(EF.ice)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(profiles.first?.displayName ?? "Athlete")
+                        .font(.title2.bold()).foregroundStyle(EF.white)
+                    Text(profiles.first?.bio ?? "Consistency compounds.")
+                        .font(.subheadline).foregroundStyle(EF.ice)
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 8) {
+                stat("\(progress.level)", "LEVEL", "star.fill")
+                stat("\(completed)", "SESSIONS", "dumbbell.fill")
+                stat("\(progress.weeklyStreak)", "WEEK STREAK", "flame.fill")
+            }
+        }
+        .padding(19)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(EF.night, in: RoundedRectangle(cornerRadius: 21))
+    }
+    private func stat(_ value: String, _ label: String, _ icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Image(systemName: icon).foregroundStyle(EF.orange)
+            Text(value).font(.headline.bold()).foregroundStyle(EF.white)
+            Text(label).font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(EF.ice)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    private func controlRow(_ index: Int, title: String, description: String,
-                            action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            EFNumberRow(order: index, title: title, detail: description)
-        }
-        .buttonStyle(.plain)
-        .overlay(alignment: .bottom) { EFRule() }
     }
 }

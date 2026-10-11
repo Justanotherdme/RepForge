@@ -6,11 +6,13 @@ struct EFPlans: View {
     @Environment(\.modelContext) private var context
     @State private var category = "All"
     @State private var query = ""
+    @State private var section = 0
     @State private var showThreeWeeks = false
     @State private var showRoutines = false
     @State private var savedName: String?
     @State private var scheduled: ScheduledWorkoutRecord?
     @AppStorage("activeGymID") private var gymID = GymProfileStore.defaultID
+    private let categories = ["All", "Strength", "Muscle growth", "Express", "Full body", "Targeted", "Conditioning"]
     private var filtered: [CoachWorkout] {
         CoachWorkoutLibrary.all.filter {
             (category == "All" || $0.category == category) &&
@@ -18,145 +20,30 @@ struct EFPlans: View {
              $0.focus.localizedCaseInsensitiveContains(query))
         }
     }
-
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 0) {
-                                Text("THE ").foregroundStyle(EF.ink)
-                                Text("PLAYBOOK.").foregroundStyle(EF.cobalt)
-                            }
-                            EFEyebrow(value: "BUILT FOR CONSISTENCY.")
-                        }
-                        .font(.system(size: 16, weight: .black))
-                        Spacer()
-                        Text("02 / 06")
-                            .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                            .foregroundStyle(EF.cobalt)
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    EFPageHeading(title: L10n.text("Training Plans", "Trainingsschema's"),
+                                  subtitle: "Structured training, ready to log.")
+                    searchField
+                    sectionPicker
+                    if section == 2 {
+                        threeWeekPanel
+                    } else {
+                        if section == 0 { featuredCard }
+                        if section == 1 { routinesPanel }
+                        workoutLibrary
                     }
-                    .padding(.bottom, 34)
-                    EFTitle(lines: L10n.text("TRAIN WITH|INTENT.", "TRAIN MET|EEN DOEL.").components(separatedBy: "|"), highlight: 1)
-                    Text(L10n.text("Real plans. Clear progression. Time you can actually commit.",
-                                    "Duidelijke schema's, zichtbare vooruitgang, haalbare trainingstijden."))
-                        .font(.subheadline).foregroundStyle(EF.faint)
-                        .padding(.top, 12).padding(.bottom, 23)
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(["All", "Strength", "Muscle growth", "Express", "Full body", "Targeted", "Conditioning"], id: \.self) { option in
-                                Button {
-                                    category = option
-                                } label: {
-                                    Text(option == "All" ? "ALL" : option.uppercased())
-                                        .font(.system(size: 10, weight: .heavy))
-                                        .foregroundStyle(category == option ? .white : EF.ink)
-                                        .padding(.horizontal, 12).frame(minHeight: 44)
-                                        .background(category == option ? EF.ink : .clear)
-                                        .overlay(Rectangle().stroke(EF.rule))
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityAddTraits(category == option ? .isSelected : [])
-                            }
-                        }
-                    }
-                    .padding(.bottom, 27)
-
-                    EFSection(title: "EDITOR'S PICK.", detail: "01 / FEATURED")
-                    if let featured = CoachWorkoutLibrary.all.first(where: { $0.id == "upper-a" }) ??
-                        CoachWorkoutLibrary.all.first {
-                        NavigationLink {
-                            detail(featured)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 14) {
-                                EFEyebrow(value: "THE STRENGTH BLUEPRINT", light: true)
-                                Text(featured.name.uppercased())
-                                    .font(.system(size: 33, weight: .black, design: .rounded))
-                                    .tracking(-1.5)
-                                    .foregroundStyle(.white)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Spacer()
-                                HStack {
-                                    Text(featured.level.uppercased())
-                                    Text("•")
-                                    Text("\(featured.exercises.count) MOVES")
-                                    Spacer()
-                                    Text("~ \(featured.estimatedMinutes) MIN")
-                                        .padding(9)
-                                        .background(EF.orange)
-                                        .foregroundStyle(EF.ink)
-                                }
-                                .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                                .foregroundStyle(EF.ice)
-                            }
-                            .padding(21)
-                            .frame(maxWidth: .infinity, minHeight: 205, alignment: .leading)
-                            .background {
-                                ZStack(alignment: .bottomTrailing) {
-                                    EF.ink
-                                    Circle().stroke(EF.cobalt, lineWidth: 27)
-                                        .frame(width: 190, height: 190)
-                                        .offset(x: 61, y: 74)
-                                        .clipped()
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.top, 12)
-                    }
-                    EFSection(title: "PROGRAM LIBRARY", detail: "\(filtered.count) WORKOUTS")
-                        .padding(.top, 30)
-                    TextField(L10n.text("Search programs", "Zoek trainingsschema's"), text: $query)
-                        .textInputAutocapitalization(.never)
-                        .padding(.vertical, 12)
-                        .overlay(alignment: .bottom) { EFRule() }
-                        .padding(.top, 10)
-                    ForEach(Array(filtered.enumerated()), id: \.element.id) { index, workout in
-                        NavigationLink {
-                            detail(workout)
-                        } label: {
-                            EFNumberRow(order: index + 1, title: workout.name,
-                                        detail: "\(workout.level) • \(workout.equipment) • ~\(workout.estimatedMinutes) MIN")
-                        }
-                        .buttonStyle(.plain)
-                        EFRule()
-                    }
-                    Button { showThreeWeeks = true } label: {
-                        HStack {
-                            Text("03").font(.system(size: 33, weight: .black))
-                                .foregroundStyle(EF.cobalt)
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(L10n.text("YOUR 3-WEEK PROGRAM", "JOUW 3-WEKENPLAN"))
-                                    .font(.headline.weight(.heavy))
-                                Text(L10n.text("Separate, fully editable plan",
-                                                "Apart, volledig bewerkbaar schema"))
-                                    .font(.caption).foregroundStyle(EF.faint)
-                            }
-                            Spacer()
-                            Text("OPEN ↗").font(.caption.weight(.heavy))
-                                .foregroundStyle(EF.cobalt)
-                        }
-                        .padding(16)
-                        .overlay(Rectangle().stroke(EF.cobalt, lineWidth: 1.2))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 22)
-                    Button { showRoutines = true } label: {
-                        EFNumberRow(order: 4, title: L10n.text("MY ROUTINES AND SCHEDULE",
-                                                            "MIJN SCHEMA'S EN AGENDA"),
-                                    detail: L10n.text("Create, edit, schedule and share",
-                                                      "Maken, bewerken, plannen en delen"))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 10)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 24)
+                .padding(.horizontal, 18)
+                .padding(.top, 26)
+                .padding(.bottom, 115)
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(EF.paper)
             .toolbar(.hidden, for: .navigationBar)
+            .tint(EF.cobalt)
             .sheet(isPresented: $showThreeWeeks) { TrainingHubView() }
             .sheet(isPresented: $showRoutines) { StartWorkoutView() }
             .sheet(item: $scheduled) { record in
@@ -170,6 +57,186 @@ struct EFPlans: View {
                 Button(L10n.done) { savedName = nil }
             } message: { Text(savedName ?? "") }
         }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 11) {
+            Image(systemName: "magnifyingglass").foregroundStyle(EF.faint)
+            TextField(L10n.text("Find a workout or plan...", "Zoek een training..."), text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .foregroundStyle(EF.ink)
+        }
+        .padding(15)
+        .background(EF.cobalt.opacity(0.06), in: RoundedRectangle(cornerRadius: 15))
+    }
+
+    private var sectionPicker: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { index in
+                Button {
+                    section = index
+                } label: {
+                    Text(["Workouts", "Splits", "My 3 Weeks"][index])
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(section == index ? .white : EF.ink)
+                        .frame(maxWidth: .infinity, minHeight: 47)
+                        .background(section == index ? EF.cobalt : .clear,
+                                    in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(section == index ? .isSelected : [])
+            }
+        }
+        .padding(4)
+        .background(EF.cobalt.opacity(0.06), in: RoundedRectangle(cornerRadius: 15))
+    }
+
+    @ViewBuilder private var featuredCard: some View {
+        if let featured = CoachWorkoutLibrary.all.first {
+            NavigationLink {
+                detail(featured)
+            } label: {
+                VStack(alignment: .leading, spacing: 13) {
+                    EFEyebrow(value: "TRAIN SMARTER", light: true)
+                    Text("FIND YOUR\nNEXT SESSION")
+                        .font(.system(size: 29, weight: .black, design: .rounded))
+                        .tracking(-0.8)
+                        .foregroundStyle(EF.white)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(featured.name.uppercased() + "  •  ~\(featured.estimatedMinutes) MIN")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(EF.ice)
+                    HStack {
+                        Text("VIEW FEATURED")
+                        Image(systemName: "arrow.up.right")
+                    }
+                    .font(.caption.weight(.heavy))
+                    .foregroundStyle(EF.ink)
+                    .padding(.horizontal, 13)
+                    .frame(height: 39)
+                    .background(EF.orange, in: RoundedRectangle(cornerRadius: 8))
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background {
+                    RoundedRectangle(cornerRadius: 19)
+                        .fill(EF.night)
+                        .overlay(alignment: .trailing) {
+                            Circle().stroke(EF.cobalt, lineWidth: 26)
+                                .frame(width: 180, height: 180)
+                                .offset(x: 80, y: 60)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 19))
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var routinesPanel: some View {
+        Button { showRoutines = true } label: {
+            EFLinkTile(symbol: "calendar", title: "My routines and schedule",
+                       subtitle: "Create, edit, schedule and share your splits")
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var threeWeekPanel: some View {
+        VStack(alignment: .leading, spacing: 17) {
+            EFEyebrow(value: "03 / YOUR PROGRAM")
+            Text("YOUR 3-WEEK\nBLUEPRINT")
+                .font(.system(size: 30, weight: .black, design: .rounded))
+                .foregroundStyle(EF.ink)
+            Text(L10n.text("Your fully editable plan and weekly schedule.",
+                           "Jouw bewerkbare trainingsschema en weekplanning."))
+                .font(.subheadline).foregroundStyle(EF.faint)
+            Button { showThreeWeeks = true } label: {
+                Label("OPEN MY PROGRAM", systemImage: "arrow.up.right")
+                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .font(.subheadline.weight(.bold))
+            }
+            .buttonStyle(.borderedProminent).tint(EF.cobalt)
+            Button { showRoutines = true } label: {
+                EFLinkTile(symbol: "list.bullet.rectangle", title: "My routines",
+                           subtitle: "Manage custom schedules and training days")
+            }
+        }
+        .padding(19)
+        .background(.white, in: RoundedRectangle(cornerRadius: 19))
+    }
+
+    private var workoutLibrary: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack {
+                Text(section == 1 ? "SPLITS & ROUTINES" : "\(filtered.count) READY-TO-USE WORKOUTS")
+                    .font(.system(size: 17, weight: .heavy, design: .rounded))
+                    .foregroundStyle(EF.ink)
+                Spacer()
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(categories, id: \.self) { option in
+                        Button { category = option } label: {
+                            Text(option == "All" ? "All goals" : option)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(category == option ? .white : EF.ink)
+                                .padding(.horizontal, 16)
+                                .frame(minHeight: 43)
+                                .background(category == option ? EF.cobalt : EF.cobalt.opacity(0.07),
+                                            in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            ForEach(filtered) { workout in
+                NavigationLink {
+                    detail(workout)
+                } label: {
+                    workoutRow(workout)
+                }
+                .buttonStyle(.plain)
+            }
+            if section == 0 {
+                Button { section = 2 } label: {
+                    EFLinkTile(symbol: "calendar.badge.clock", title: "Your 3-week program",
+                               subtitle: "Separate, fully editable workout plan")
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 7)
+    }
+
+    private func workoutRow(_ workout: CoachWorkout) -> some View {
+        HStack(spacing: 13) {
+            Image(systemName: "figure.strengthtraining.traditional")
+                .font(.title2)
+                .foregroundStyle(EF.cobalt)
+                .frame(width: 58, height: 65)
+                .background(EF.cobalt.opacity(0.10), in: RoundedRectangle(cornerRadius: 15))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(workout.category.uppercased())
+                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(EF.cobalt)
+                Text(workout.name)
+                    .font(.subheadline.weight(.bold)).foregroundStyle(EF.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(workout.focus)
+                    .font(.caption).foregroundStyle(EF.faint)
+                    .lineLimit(2)
+                Text("~\(workout.estimatedMinutes) MIN  ·  \(workout.exercises.count) MOVES  ·  \(workout.level.uppercased())")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(EF.faint)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 2)
+            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(EF.ink)
+        }
+        .padding(14)
+        .background(.white, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(EF.rule.opacity(0.65)))
     }
 
     private func detail(_ workout: CoachWorkout) -> some View {

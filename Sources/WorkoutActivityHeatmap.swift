@@ -4,6 +4,7 @@ import SwiftUI
 struct WorkoutActivityHeatmap: View {
     let sessions: [WorkoutSession]
     var condensed = false
+    var lightStyle = false
     @State private var selectedDay: Date?
 
     private let calendar = Calendar.current
@@ -33,6 +34,7 @@ struct WorkoutActivityHeatmap: View {
                         .foregroundStyle(RFTheme.accent)
                     Text(L10n.text("Show up. Stack days.", "Kom opdagen. Bouw dagen op."))
                         .font(condensed ? .subheadline.bold() : .title3.bold())
+                        .foregroundStyle(lightStyle ? EF.ink : .primary)
                 }
                 Spacer()
                 Image(systemName: "calendar")
@@ -97,14 +99,23 @@ struct WorkoutActivityHeatmap: View {
             }
         }
         .padding(condensed ? 14 : 19)
-        .background(RFTheme.surface, in: RoundedRectangle(cornerRadius: RFLayout.cornerRadius))
+        .background(lightStyle ? .white : RFTheme.surface, in: RoundedRectangle(cornerRadius: RFLayout.cornerRadius))
         .overlay(
             RoundedRectangle(cornerRadius: RFLayout.cornerRadius)
-                .stroke(RFTheme.cardBorder)
+                .stroke(lightStyle ? EF.rule : RFTheme.cardBorder)
         )
     }
 
     private func fill(for count: Int, isFuture: Bool) -> Color {
+        if lightStyle {
+            if isFuture { return EF.cobalt.opacity(0.04) }
+            switch count {
+            case 0: return EF.cobalt.opacity(0.07)
+            case 1: return Color.purple.opacity(0.36)
+            case 2: return Color.purple.opacity(0.67)
+            default: return RFTheme.success
+            }
+        }
         if isFuture { return RFTheme.raised.opacity(0.35) }
         switch count {
         case 0: return RFTheme.raised
