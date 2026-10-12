@@ -10,11 +10,12 @@ struct EFExerciseSelector: View {
     @State private var equipment = "All"
     @State private var muscle = "All"
     private var results: [ExerciseDefinition] {
-        ExerciseCatalog.all.filter {
+        let matching = ExerciseCatalog.all.filter {
             ExerciseSearch.matches($0, query: search) &&
             GymEquipmentFilter.matches($0, selected: equipment) &&
             (muscle == "All" || $0.muscle == muscle)
         }
+        return ExerciseSearch.ranked(matching, query: search)
     }
 
     var body: some View {

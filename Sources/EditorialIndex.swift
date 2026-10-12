@@ -13,11 +13,12 @@ struct EFIndex: View {
     }
     private var items: [ExerciseDefinition] {
         _ = refresh
-        return ExerciseCatalog.all.filter {
+        let matching = ExerciseCatalog.all.filter {
             ExerciseSearch.matches($0, query: query) &&
             GymEquipmentFilter.matches($0, selected: equipment) &&
             (muscle == "All" || $0.muscle == muscle)
         }
+        return ExerciseSearch.ranked(matching, query: query)
     }
 
     var body: some View {
