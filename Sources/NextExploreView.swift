@@ -10,12 +10,13 @@ struct NextExploreView: View {
     @State private var revision = 0
 
     private var filtered: [ExerciseDefinition] {
-        ExerciseCatalog.all.filter { exercise in
+        let matching = ExerciseCatalog.all.filter { exercise in
             ExerciseSearch.matches(exercise, query: search) &&
             GymEquipmentFilter.matches(exercise, selected: equipment) &&
             (muscle == "All" || exercise.muscle == muscle) &&
             (!favoritesOnly || ExerciseShortcutStore.isFavorite(exercise.id))
         }
+        return ExerciseSearch.ranked(matching, query: search)
     }
 
     var body: some View {

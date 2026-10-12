@@ -1381,6 +1381,61 @@ enum ExerciseSearch {
         "Push Up": ["pushup", "push-up"]
     ]
 
+    /// Order matching exercises by how closely their names match the typed query.
+    /// Never change the catalogue order when there is no query.
+    static func ranked(_ exercises: [ExerciseDefinition], query: String) -> [ExerciseDefinition] {
+        let q = normalize(query)
+        guard !q.isEmpty else { return exercises }
+
+        let scored = exercises.map { exercise in
+            (exercise: exercise, relevance: relevance(exercise, query: q))
+        }
+        return scored.sorted { left, right in
+            if left.relevance != right.relevance {
+                return left.relevance > right.relevance
+            }
+            let nameOrder = left.exercise.name.localizedStandardCompare(right.exercise.name)
+            if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+            return left.exercise.id < right.exercise.id
+        }.map { $0.exercise }
+    }
+
+    private static func relevance(_ exercise: ExerciseDefinition, query q: String) -> Int {
+        let name = normalize(exercise.name)
+        let tokens = q.split(separator: " ").map(String.init)
+        let nameWords = name.split(separator: " ").map(String.init)
+        let allAliases = (exercise.aliases + (aliases[exercise.name] ?? [])).map(normalize)
+
+        // The typed phrase in the exercise name must outrank metadata and synonyms.
+        if name == q { return 10_000 }
+        if name.hasPrefix(q) { return 9_400 }
+        if let range = name.range(of: q) {
+            let precedingWords = name[..<range.lowerBound].split(separator: " ").count
+            return 8_500 - min(400, precedingWords * 40)
+        }
+
+        if allAliases.contains(q) { return 7_700 }
+        if allAliases.contains(where: { $0.hasPrefix(q) }) { return 7_300 }
+        if allAliases.contains(where: { $0.contains(q) }) { return 6_900 }
+
+        // Non-adjacent name-token matches still beat alias and metadata-only hits.
+        if tokens.allSatisfy({ token in nameWords.contains(where: { $0.hasPrefix(token) }) }) {
+            return 6_000
+        }
+        if allAliases.contains(where: { alias in
+            let words = alias.split(separator: " ").map(String.init)
+            return tokens.allSatisfy { token in words.contains(where: { $0.hasPrefix(token) }) }
+        }) {
+            return 5_200
+        }
+
+        // Preserve broader discovery, but always show it after name/alias matches.
+        let metadata = normalize([exercise.muscle, exercise.equipment, exercise.movement]
+            .joined(separator: " "))
+        if metadata.contains(q) { return 1_200 }
+        return 100
+    }
+
     static func matches(_ exercise: ExerciseDefinition, query: String) -> Bool {
         let q = normalize(query)
         guard !q.isEmpty else { return true }
@@ -3955,11 +4010,12 @@ struct ExercisePickerView: View {
 
     private var filtered: [ExerciseDefinition] {
         _ = shortcutRevision
-        return ExerciseCatalog.all.filter { ex in
+        let matching = ExerciseCatalog.all.filter { ex in
             ExerciseSearch.matches(ex, query: search) &&
             (muscle == "All" || ex.muscle == muscle) &&
             GymEquipmentFilter.matches(ex, selected: equipment)
         }
+        return ExerciseSearch.ranked(matching, query: search)
     }
 
     private var favorites: [ExerciseDefinition] {
@@ -7303,11 +7359,12 @@ struct ExerciseLibraryView: View {
 
     private var filtered: [ExerciseDefinition] {
         _ = refreshToken
-        return ExerciseCatalog.all.filter { ex in
+        let matching = ExerciseCatalog.all.filter { ex in
             ExerciseSearch.matches(ex, query: search) &&
             (muscle == "All" || ex.muscle == muscle) &&
             GymEquipmentFilter.matches(ex, selected: equipment)
         }
+        return ExerciseSearch.ranked(matching, query: search)
     }
 
     var body: some View {
