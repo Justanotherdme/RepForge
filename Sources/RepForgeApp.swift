@@ -7099,9 +7099,23 @@ struct SessionDetailView: View {
             titleVisibility: .visible
         ) {
             Button(L10n.text("Delete workout", "Training verwijderen"), role: .destructive) {
-                context.delete(session)
-                try? context.save()
+                // Remove the detail view before invalidating its SwiftData model.
+                // Navigation transitions can otherwise reevaluate session properties
+                // after the underlying persistent object has been deleted.
+                let sessionID = session.persistentModelID
                 dismiss()
+                Task { @MainActor in
+                    // Yield to the navigation transaction before deleting the model.
+                    try? await Task.sleep(for: .milliseconds(450))
+                    guard let stored = context.model(for: sessionID) as? WorkoutSession else { return }
+                    context.delete(stored)
+                    do {
+                        try context.save()
+                    } catch {
+                        context.rollback()
+                        assertionFailure("Failed to delete workout history: \\(error)")
+                    }
+                }
             }
             Button(L10n.text("Cancel", "Annuleren"), role: .cancel) {}
         } message: {
